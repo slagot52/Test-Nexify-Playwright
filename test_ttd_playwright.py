@@ -292,8 +292,100 @@ def test_ttd_campaign_channels(page: Page):
     # are optional and skipped.
 
 
-# TODO: test_ttd_ad_groups(page)         - Step 4, Ad Groups
-# TODO: test_ttd_recap(page)             - Step 5, Recap + Start campaign
+def test_ttd_ad_groups(page: Page):
+    """TEST 31-38: Step 4 Ad Groups (with channels summary dialog confirmation)."""
+    # From Campaign Channels click "Next": the summary dialog opens (same
+    # dv360-io-summary-dialog component as DV360, with TTD content).
+    page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
+
+    # TEST 31: "Review insertion orders" dialog, confirm with "Confirm & continue".
+    dialog = page.locator("dv360-io-summary-dialog")
+    expect(dialog).to_be_visible()
+    expect(dialog.locator("h2", has_text="Review insertion orders")).to_be_visible()
+    dialog.locator("button.mdc-button", has_text="Confirm & continue").click()
+    expect(dialog).not_to_be_visible()
+    ok(31, "'Review insertion orders' dialog confirmed with 'Confirm & continue'")
+
+    # TEST 32: verify the "Line Items" step (Step 4, = Ad Groups) is selected.
+    step = page.locator("dx-stepper div.dx-step", has_text="Line Items")
+    expect(step).to_have_attribute("aria-selected", "true")
+    ok(32, "navigated to Step 4 (Ad Groups / 'Line Items' step selected)")
+
+    ag_form = page.locator("app-ttd-ad-groups form")
+    expect(ag_form).to_be_visible()
+
+    # TEST 33: Ad Group Name = "Test AD - " + unix timestamp
+    ad_group_name = f"Test AD - {int(time.time())}"
+    fill_and_verify(ag_form, "adGroupName", ad_group_name)
+    ok(33, f"Ad Group Name filled with '{ad_group_name}'")
+
+    # TEST 34: Channel = Audio
+    select_mat_option(page, "channelId", "Audio")
+    ok(34, "Channel = 'Audio' selected and verified")
+
+    # TEST 35: Funnel Location = Awareness
+    select_mat_option(page, "funnelLocation", "Awareness")
+    ok(35, "Funnel Location = 'Awareness' selected and verified")
+
+    # TEST 36: Base Bid CPM = 1
+    fill_and_verify(ag_form, "baseBidAmount", "1")
+    ok(36, "Base Bid CPM = 1 entered and verified")
+
+    # TEST 37: Max Bid CPM = 1
+    fill_and_verify(ag_form, "maxBidAmount", "1")
+    ok(37, "Max Bid CPM = 1 entered and verified")
+
+    # TEST 38: "Enabled" checkbox confirmed checked.
+    enabled_cb = ag_form.locator("mat-checkbox[formcontrolname='isEnabled']")
+    enabled_input = enabled_cb.locator("input[type='checkbox']")
+    if not enabled_input.is_checked():
+        enabled_cb.click()
+    expect(enabled_input).to_be_checked()
+    ok(38, "'Enabled' checkbox confirmed checked")
+
+    # Left at defaults / skipped: Description, currencies (EUR), Goal Type
+    # (None), Audience (Target Everyone), Predictive Clearing, and all the
+    # optional list sections (Geography already has Spain, Device Type, Ad
+    # Environment, Publisher List, Category, Supply Vendor, Deals, Contextual
+    # Keywords).
+
+
+def test_ttd_recap(page: Page):
+    """TEST 39-40: Step 5 Recap, then optional Start campaign (user-gated)."""
+    # From Ad Groups click "Next" to reach the Recap step. A summary dialog may
+    # appear (as on the channels step): dismiss it best-effort if it does.
+    page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
+    dialog = page.locator("dv360-io-summary-dialog")
+    try:
+        expect(dialog).to_be_visible(timeout=2000)
+        dialog.locator("button.mdc-button", has_text="Confirm & continue").click()
+        expect(dialog).not_to_be_visible()
+    except AssertionError:
+        pass
+
+    # TEST 39: Recap step loaded.
+    expect(page.locator("app-recap-and-validate")).to_be_visible()
+    expect(
+        page.locator("span.pb-5.text-4xl.font-bold", has_text="Review before creating the Campaign")
+    ).to_be_visible()
+    recap_step = page.locator("dx-stepper div.dx-step", has_text="Recap")
+    expect(recap_step).to_have_attribute("aria-selected", "true")
+    ok(39, "navigated to the Recap step ('Review before creating the Campaign')")
+
+    # TEST 40: click "Start campaign".
+    # WARNING: this is a consequential action (it actually LAUNCHES the TTD
+    # campaign) and is hard to undo. The click happens ONLY if the user types 'yes'.
+    start_btn = page.locator("button.mdc-button", has_text="Start campaign")
+    expect(start_btn).to_be_visible()
+    answer = input(
+        "\n>>> 'Start campaign' ACTUALLY LAUNCHES the TTD campaign. "
+        "Type 'yes' to confirm the click (anything else cancels): "
+    ).strip().lower()
+    if answer == "yes":
+        start_btn.click()
+        ok(40, "click on 'Start campaign' confirmed and performed")
+    else:
+        print("TEST 40 SKIPPED -> click on 'Start campaign' cancelled by the user")
 
 
 # --------------------------------------------------------------------------
@@ -321,7 +413,8 @@ def main():
             test_ttd_general_info(page)     # TEST 4-16
             test_ttd_global_setup(page)     # TEST 17-22
             test_ttd_campaign_channels(page)  # TEST 23-30
-            # Next TTD steps will be called here as they are added.
+            test_ttd_ad_groups(page)        # TEST 31-38
+            test_ttd_recap(page)            # TEST 39-40 (Start campaign user-gated)
 
             print("\nALL TESTS PASSED ✅")
             page.wait_for_timeout(3000)
