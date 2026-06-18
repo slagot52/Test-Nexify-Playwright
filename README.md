@@ -1,15 +1,16 @@
 # Test Nexify Playwright
 
-Suite di test end-to-end con **Playwright (Python)** per il flusso di creazione
-campagna DV360 su [publicisnexify.com](https://publicisnexify.com/).
+End-to-end test suite using **Playwright (Python)** for the DV360 campaign
+creation flow on [publicisnexify.com](https://publicisnexify.com/).
 
-Il test percorre l'intero wizard: **Global Setup → Insertion Orders → Line Items
-→ Start campaign**, compilando e verificando ogni campo (58 controlli numerati).
+The test walks through the whole wizard: **Global Setup → Insertion Orders →
+Line Items → Start campaign**, filling and verifying every field (58 numbered
+checks).
 
-## Requisiti
+## Requirements
 
 - Python 3.12+
-- Accesso SSO a publicisnexify.com
+- SSO access to publicisnexify.com
 
 ## Setup
 
@@ -17,44 +18,44 @@ Il test percorre l'intero wizard: **Global Setup → Insertion Orders → Line I
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-playwright install          # scarica i browser (una volta sola)
+playwright install          # downloads the browsers (one time only)
 ```
 
-## Login SSO (prima esecuzione)
+## SSO login (first run)
 
-Il sito richiede login SSO, che Playwright non può automatizzare. Si usa la
-strategia "salva la sessione una volta, riutilizzala sempre":
+The site requires an SSO login, which Playwright cannot automate. We use the
+"save the session once, reuse it forever" strategy:
 
-1. Alla **prima esecuzione** si apre il browser: completa il login SSO a mano,
-   poi premi INVIO nel terminale. La sessione viene salvata in `auth_state.json`.
-2. Le **esecuzioni successive** caricano `auth_state.json` e saltano il login.
+1. On the **first run** the browser opens: complete the SSO login by hand, then
+   press ENTER in the terminal. The session is saved to `auth_state.json`.
+2. **Subsequent runs** load `auth_state.json` and skip the login.
 
-Per forzare un nuovo login: cancella `auth_state.json` e riesegui.
+To force a new login: delete `auth_state.json` and run again.
 
-> ⚠️ `auth_state.json` contiene cookie e localStorage della sessione: è già in
-> `.gitignore` e **non va committato**.
+> ⚠️ `auth_state.json` contains the session cookies and localStorage: it is
+> already in `.gitignore` and **must not be committed**.
 
-## Esecuzione
+## Running
 
 ```bash
 python test_nexify_playwright.py
 ```
 
-- Il browser resta **aperto** alla fine dei test per l'ispezione manuale: premi
-  INVIO per chiuderlo.
-- L'ultimo step (**Start campaign**, test 58) è un'azione di produzione
-  irreversibile: il click avviene **solo** se confermi digitando `si` nel
-  terminale.
+- The browser stays **open** at the end of the tests for manual inspection:
+  press ENTER to close it.
+- The last step (**Start campaign**, test 58) is an irreversible production
+  action: the click happens **only** if you confirm by typing `yes` in the
+  terminal.
 
-## Struttura dei test
+## Test structure
 
-| Range | Sezione |
+| Range | Section |
 |-------|---------|
-| 1–26  | SSO, creazione campagna, General Info, dialog template, **Global Setup** |
+| 1–26  | SSO, campaign creation, General Info, template dialog, **Global Setup** |
 | 27–37 | **Insertion Orders** |
-| 38    | Verifica sync della sidebar coi dati del form |
-| 39–58 | **Line Items** + navigazione e **Start campaign** (con gate di conferma) |
+| 38    | Sidebar sync check against the form data |
+| 39–58 | **Line Items** + navigation and **Start campaign** (with confirmation gate) |
 
-## File
+## Files
 
-- `test_nexify_playwright.py` — suite principale (publicisnexify.com)
+- `test_nexify_playwright.py` — main suite (publicisnexify.com)

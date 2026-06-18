@@ -1,12 +1,12 @@
-# Sessione SSO salvata (cookies/localStorage) - NON committare
+# Saved SSO session (cookies/localStorage) - DO NOT commit
 auth_state.json
 
-# Ambiente virtuale Python
+# Python virtual environment
 venv/
 
-# Cache Python
+# Python cache
 __pycache__/
 *.pyc
 
-# Config locale dell'editor/harness
+# Local editor/harness config
 .claude/
