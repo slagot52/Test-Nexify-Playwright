@@ -41,6 +41,52 @@ from test_nexify_playwright import (
 TTD_ADVERTISER = "Garnier_ES"
 
 
+def _open_and_select(page: Page, select, option_name: str):
+    """
+    Open a <mat-select> given by its Locator (not by formcontrolname) and select
+    the exact option. Same robust open/verify logic as the shared
+    select_mat_option, used for TTD selects that have no formcontrolname.
+    """
+    expect(select).to_be_visible()
+    select.scroll_into_view_if_needed()
+    select_id = select.get_attribute("id")
+    for attempt in range(4):
+        if attempt == 0:
+            select.click(force=True)
+        else:
+            select.focus()
+            select.press("Enter")
+        try:
+            expect(select).to_have_attribute("aria-expanded", "true", timeout=2000)
+            break
+        except AssertionError:
+            page.keyboard.press("Escape")
+            continue
+    else:
+        raise AssertionError("Could not open the mat-select")
+    panel = page.locator(f"#{select_id}-panel")
+    expect(panel).to_be_visible()
+    panel.get_by_role("option", name=option_name, exact=True).click()
+    expect(select).to_contain_text(option_name)
+    return select
+
+
+def _set_date_range_dialog(page: Page, date_from, date_to):
+    """Fill the shared app-date-time-range-dialog (start/end) and click Apply."""
+    dlg = page.locator("app-date-time-range-dialog")
+    expect(dlg).to_be_visible()
+    start = dlg.locator("input[formcontrolname='startDate']")
+    end = dlg.locator("input[formcontrolname='endDate']")
+    start.fill(date_from.strftime(DATE_FMT))
+    end.fill(date_to.strftime(DATE_FMT))
+    end.press("Enter")  # commit the range before applying
+    # If the dates registered, Apply becomes enabled; otherwise fail clearly.
+    apply_btn = dlg.locator("button.mdc-button--unelevated", has_text="Apply")
+    expect(apply_btn).to_be_enabled()
+    apply_btn.click()
+    expect(dlg).not_to_be_visible()
+
+
 # --------------------------------------------------------------------------
 # TTD test steps  (filled in as the HTML of each section is provided)
 # --------------------------------------------------------------------------
@@ -180,16 +226,72 @@ def test_ttd_global_setup(page: Page):
     date_from = today + datetime.timedelta(days=1)
     date_to = today + datetime.timedelta(days=2)
     gs_form.locator("button.dt-suffix").first.click()
-    dlg = page.locator("app-date-time-range-dialog")
-    expect(dlg).to_be_visible()
-    dlg.locator("input[formcontrolname='startDate']").fill(date_from.strftime(DATE_FMT))
-    dlg.locator("input[formcontrolname='endDate']").fill(date_to.strftime(DATE_FMT))
-    dlg.locator("button.mdc-button--unelevated", has_text="Apply").click()
-    expect(dlg).not_to_be_visible()
+    _set_date_range_dialog(page, date_from, date_to)
     ok(22, f"Dates set via dialog: Start={date_from} End={date_to}")
 
 
-# TODO: test_ttd_campaign_channels(page) - Step 3, Campaign Channels
+def test_ttd_campaign_channels(page: Page):
+    """TEST 23-30: TTD Campaign Channels (channel, pacing, KPIs, flight)."""
+    # Navigate from Global Setup with "Next" (re-click if the first only blurs).
+    cc_form = page.locator("app-ttd-campaign-channels form")
+    for _ in range(3):
+        page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
+        try:
+            expect(cc_form).to_be_visible(timeout=5000)
+            break
+        except AssertionError:
+            page.wait_for_timeout(1000)
+    expect(cc_form).to_be_visible()
+    expect(cc_form.locator("h2", has_text="TTD Campaign Channels")).to_be_visible()
+    ok(23, "navigated to TTD Campaign Channels ('TTD Campaign Channels' visible)")
+
+    # TEST 24: Campaign/Channel Name
+    channel_name = f"Audio - Test - {int(time.time())}"
+    fill_and_verify(cc_form, "campaignName", channel_name)
+    ok(24, f"Campaign Name (channel) filled with '{channel_name}'")
+
+    # TEST 25: Channel = Audio
+    select_mat_option(page, "primaryChannel", "Audio")
+    ok(25, "Channel = 'Audio' selected and verified")
+
+    # TEST 26: Pacing Mode = Pace Evenly
+    select_mat_option(page, "pacingMode", "Pace Evenly")
+    ok(26, "Pacing Mode = 'Pace Evenly' selected and verified")
+
+    # TEST 27: Primary KPI Goal Type = Completion Rate.
+    # The three "Goal Type" selects (Primary/Secondary/Tertiary) have no
+    # formcontrolname; they appear in that order, so Primary is the first.
+    primary_goal = cc_form.locator("mat-form-field", has_text="Goal Type").nth(0).locator("mat-select")
+    _open_and_select(page, primary_goal, "Completion Rate")
+    ok(27, "Primary KPI Goal Type = 'Completion Rate' selected and verified")
+
+    # TEST 28: Primary KPI Goal % = 1 (input with no formcontrolname -> by label).
+    goal_pct = cc_form.locator("mat-form-field", has_text="Goal %").locator("input")
+    expect(goal_pct).to_be_visible()
+    goal_pct.fill("1")
+    assert goal_pct.input_value() == "1", f"Goal % expected '1', got '{goal_pct.input_value()}'"
+    ok(28, "Primary KPI Goal % = 1 entered and verified")
+
+    # TEST 29: Campaign Flight dates (start = tomorrow, end = day after) via dialog.
+    today = datetime.date.today()
+    date_from = today + datetime.timedelta(days=1)
+    date_to = today + datetime.timedelta(days=2)
+    flight = cc_form.locator("div.flight-row").first
+    # Open the date dialog via the calendar icon button (the readonly date input
+    # itself has zero size). With the maximized window the button is no longer
+    # overlapped, so a normal click works.
+    flight.locator("button.dt-suffix").first.click()
+    _set_date_range_dialog(page, date_from, date_to)
+    ok(29, f"Flight dates set via dialog: Start={date_from} End={date_to}")
+
+    # TEST 30: Flight Budget (advertiser currency) = 1
+    fill_and_verify(flight, "budgetAmount", "1")
+    ok(30, "Flight Budget = 1 entered and verified")
+
+    # Secondary/Tertiary KPI left as 'None'; Fee card and Conversion reporting
+    # are optional and skipped.
+
+
 # TODO: test_ttd_ad_groups(page)         - Step 4, Ad Groups
 # TODO: test_ttd_recap(page)             - Step 5, Recap + Start campaign
 
@@ -207,14 +309,18 @@ def main():
         storage_state = str(AUTH_FILE)
 
         print("\nOpening the browser with the SSO session...")
-        browser = p.chromium.launch(headless=False)
-        context = browser.new_context(storage_state=storage_state)
+        # Maximize the window and use the real screen size (no_viewport=True):
+        # a small viewport makes the responsive layout collapse fields (e.g. the
+        # flight row date inputs), making them zero-size / not clickable.
+        browser = p.chromium.launch(headless=False, args=["--start-maximized"])
+        context = browser.new_context(storage_state=storage_state, no_viewport=True)
         page = context.new_page()
 
         try:
             test_landing(page)              # TEST 1-3 (shared, DSP-agnostic)
             test_ttd_general_info(page)     # TEST 4-16
             test_ttd_global_setup(page)     # TEST 17-22
+            test_ttd_campaign_channels(page)  # TEST 23-30
             # Next TTD steps will be called here as they are added.
 
             print("\nALL TESTS PASSED ✅")
