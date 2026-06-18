@@ -177,7 +177,7 @@ def test_ttd_general_info(page: Page):
     expect(brand_row.locator("span", has_text=TTD_ADVERTISER)).to_be_visible()
     ok(16, f"side panel updated with DSP 'The Trade Desk' and Brand '{TTD_ADVERTISER}'")
 
-    return footer
+    return campaign_name
 
 
 def test_ttd_global_setup(page: Page):
@@ -211,14 +211,14 @@ def test_ttd_global_setup(page: Page):
     select_mat_option(page, "seedId", "Garnier Beauty")
     ok(19, "Seed Id = 'Garnier Beauty' selected and verified")
 
-    # TEST 20: Time Zone = (UTC) Coordinated Universal Time
-    select_mat_option(page, "timeZone", "(UTC) Coordinated Universal Time")
-    ok(20, "Time Zone = '(UTC) Coordinated Universal Time' selected and verified")
-
-    # TEST 21: Purchase Order Number = random alphanumeric text, max 8 characters.
-    purchase_order = "".join(random.choices(string.ascii_letters + string.digits, k=8))
+    # TEST 20: Purchase Order Number = random number, max 8 digits.
+    purchase_order = "".join(random.choices(string.digits, k=8))
     fill_and_verify(gs_form, "purchaseOrderNumber", purchase_order)
-    ok(21, f"Purchase Order Number = '{purchase_order}'")
+    ok(20, f"Purchase Order Number = '{purchase_order}'")
+
+    # TEST 21: Time Zone = (UTC) Coordinated Universal Time
+    select_mat_option(page, "timeZone", "(UTC) Coordinated Universal Time")
+    ok(21, "Time Zone = '(UTC) Coordinated Universal Time' selected and verified")
 
     # TEST 22: Dates - open the custom date dialog (the form inputs are readonly),
     # fill the start/end range (tomorrow / day after) and Apply.
@@ -379,8 +379,8 @@ def test_ttd_ad_groups(page: Page):
     # Keywords).
 
 
-def test_ttd_recap(page: Page):
-    """TEST 39-40: Step 5 Recap, then optional Start campaign (user-gated)."""
+def test_ttd_recap(page: Page, campaign_name: str):
+    """TEST 39-43: Recap, Start campaign (user-gated), redirect + submitted check."""
     # From Ad Groups click "Next" to reach the Recap step. A summary dialog may
     # appear (as on the channels step): dismiss it best-effort if it does.
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
@@ -428,6 +428,30 @@ def test_ttd_recap(page: Page):
                 + "\n- ".join(m.strip() for m in messages)
             )
         ok(40, "'Start campaign' performed, no validation-errors dialog shown")
+
+        # TEST 41: on success the app redirects back to the campaigns list.
+        page.wait_for_url("**/campaign", timeout=15000)
+        assert page.url.rstrip("/") == f"{BASE_URL}/campaign", (
+            f"Expected redirect to {BASE_URL}/campaign\nActual URL: {page.url}"
+        )
+        ok(41, f"redirected to the campaigns list ({page.url})")
+
+        # TEST 42: the just-created campaign appears as a row in the table.
+        # The campaigns list is a dx-data-grid; search to filter (handles
+        # pagination), then target the row whose Name cell (column 1) matches.
+        grid = page.locator("div.border.border-slate-200.rounded-xl dx-data-grid")
+        expect(grid).to_be_visible()
+        grid.locator("input[aria-label='Search in the data grid']").fill(campaign_name)
+        campaign_row = grid.locator("tr.dx-data-row").filter(
+            has=page.locator("td[aria-colindex='1']", has_text=campaign_name)
+        )
+        expect(campaign_row).to_have_count(1)
+        expect(campaign_row).to_be_visible()
+        ok(42, f"campaign '{campaign_name}' found in the campaigns table")
+
+        # TEST 43: that campaign is in 'SUBMITTED' status (Status is column 9).
+        expect(campaign_row.locator("td[aria-colindex='9']")).to_contain_text("SUBMITTED")
+        ok(43, f"campaign '{campaign_name}' is in 'SUBMITTED' status")
     else:
         print("TEST 40 SKIPPED -> click on 'Start campaign' cancelled by the user")
 
@@ -454,11 +478,11 @@ def main():
 
         try:
             test_landing(page)              # TEST 1-3 (shared, DSP-agnostic)
-            test_ttd_general_info(page)     # TEST 4-16
+            campaign_name = test_ttd_general_info(page)  # TEST 4-16
             test_ttd_global_setup(page)     # TEST 17-22
             test_ttd_campaign_channels(page)  # TEST 23-30
             test_ttd_ad_groups(page)        # TEST 31-38
-            test_ttd_recap(page)            # TEST 39-40 (Start campaign user-gated)
+            test_ttd_recap(page, campaign_name)  # TEST 39-43 (Start + submitted check)
 
             print("\nALL TESTS PASSED ✅")
             page.wait_for_timeout(3000)
