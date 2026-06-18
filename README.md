@@ -38,7 +38,7 @@ To force a new login: delete `auth_state.json` and run again.
 ## Running
 
 ```bash
-python test_nexify_playwright.py
+python test_dv360_playwright.py
 ```
 
 - The browser stays **open** at the end of the tests for manual inspection:
@@ -58,4 +58,4 @@ python test_nexify_playwright.py
 
 ## Files
 
-- `test_nexify_playwright.py` — main suite (publicisnexify.com)
+- `test_dv360_playwright.py` — main suite (publicisnexify.com)

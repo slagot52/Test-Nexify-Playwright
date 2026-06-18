@@ -10,7 +10,7 @@ reuse it forever" strategy:
                           hand; the session is then saved to auth_state.json.
   2. Subsequent runs  ->  loads auth_state.json and skips the login.
 
-Run with:        python test_nexify_playwright.py
+Run with:        python test_dv360_playwright.py
 Force new login: delete auth_state.json and run again.
 """
 

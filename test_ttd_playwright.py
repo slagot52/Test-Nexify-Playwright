@@ -10,7 +10,7 @@ TTD-specific structure (differs from DV360):
   - Level 2: "Ad Groups"          (vs "Line Items" on DV360)
   - Periods are called "Flights"
 
-Reuses the shared helpers and SSO handling from test_nexify_playwright
+Reuses the shared helpers and SSO handling from test_dv360_playwright
 (importing them does NOT run that suite: its main() is guarded by __main__).
 
 Run with:        python test_ttd_playwright.py
@@ -24,7 +24,7 @@ import time
 
 from playwright.sync_api import Page, expect, sync_playwright
 
-from test_nexify_playwright import (
+from test_dv360_playwright import (
     AUTH_FILE,
     BASE_URL,
     TARGET_URL,
