@@ -58,5 +58,3 @@ python test_nexify_playwright.py
 ## File
 
 - `test_nexify_playwright.py` — suite principale (publicisnexify.com)
-- `test_sito_playwright.py` / `test_sito.py` — esempi su saucedemo.com (Playwright / Selenium)
-- `GUIDA.md` — guida introduttiva a Selenium/Playwright
