@@ -610,7 +610,22 @@ def test_line_items_form(page: Page):
     ).strip().lower()
     if answer == "yes":
         start_btn.click()
-        ok(58, "click on 'Start campaign' confirmed and performed")
+        # If the server rejects the data, an activation-errors dialog appears.
+        # Surface its messages as a clear test failure instead of passing silently.
+        errors_dialog = page.locator("app-campaign-activation-errors-dialog")
+        appeared = False
+        try:
+            expect(errors_dialog).to_be_visible(timeout=8000)
+            appeared = True
+        except AssertionError:
+            appeared = False
+        if appeared:
+            messages = errors_dialog.locator("p.text-red-700").all_inner_texts()
+            raise AssertionError(
+                "Campaign validation failed at Start campaign:\n- "
+                + "\n- ".join(m.strip() for m in messages)
+            )
+        ok(58, "'Start campaign' performed, no validation-errors dialog shown")
     else:
         print("TEST 58 SKIPPED -> click on 'Start campaign' cancelled by the user")
 
