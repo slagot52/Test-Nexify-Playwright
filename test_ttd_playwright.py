@@ -229,6 +229,13 @@ def test_ttd_global_setup(page: Page):
     _set_date_range_dialog(page, date_from, date_to)
     ok(22, f"Dates set via dialog: Start={date_from} End={date_to}")
 
+    # Persistence guard: Purchase Order is required at campaign start and may get
+    # cleared by a reload (e.g. after the date dialog). Re-fill if it got reset.
+    po_input = gs_form.locator("input[formcontrolname='purchaseOrderNumber']")
+    if not po_input.input_value():
+        po_input.fill(purchase_order)
+    assert po_input.input_value(), "Purchase Order Number is empty after the guard"
+
 
 def test_ttd_campaign_channels(page: Page):
     """TEST 23-30: TTD Campaign Channels (channel, pacing, KPIs, flight)."""
@@ -319,8 +326,13 @@ def test_ttd_ad_groups(page: Page):
     fill_and_verify(ag_form, "adGroupName", ad_group_name)
     ok(33, f"Ad Group Name filled with '{ad_group_name}'")
 
-    # TEST 34: Channel = Audio
+    # TEST 34: Channel = Audio.
+    # Changing the channel reloads the ad group config in a DEBOUNCED way and can
+    # reset Funnel Location and the bid fields. We set the channel FIRST and wait
+    # for the reload to settle before filling the others.
     select_mat_option(page, "channelId", "Audio")
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(2500)
     ok(34, "Channel = 'Audio' selected and verified")
 
     # TEST 35: Funnel Location = Awareness
@@ -334,6 +346,23 @@ def test_ttd_ad_groups(page: Page):
     # TEST 37: Max Bid CPM = 1
     fill_and_verify(ag_form, "maxBidAmount", "1")
     ok(37, "Max Bid CPM = 1 entered and verified")
+
+    # Persistence guard: a late debounced reload (from the channel change) may
+    # clear Funnel Location / bids after we set them. Re-apply any that got reset,
+    # then assert they are populated (these are required at campaign start).
+    page.wait_for_timeout(1000)
+    funnel_select = page.locator("mat-select[formcontrolname='funnelLocation']")
+    if "mat-mdc-select-empty" in (funnel_select.get_attribute("class") or ""):
+        select_mat_option(page, "funnelLocation", "Awareness")
+    base_bid = ag_form.locator("input[formcontrolname='baseBidAmount']")
+    if not base_bid.input_value():
+        base_bid.fill("1")
+    max_bid = ag_form.locator("input[formcontrolname='maxBidAmount']")
+    if not max_bid.input_value():
+        max_bid.fill("1")
+    assert "mat-mdc-select-empty" not in (funnel_select.get_attribute("class") or ""), \
+        "Funnel Location is empty after the guard"
+    assert base_bid.input_value() and max_bid.input_value(), "Bid fields empty after the guard"
 
     # TEST 38: "Enabled" checkbox confirmed checked.
     enabled_cb = ag_form.locator("mat-checkbox[formcontrolname='isEnabled']")
@@ -383,7 +412,22 @@ def test_ttd_recap(page: Page):
     ).strip().lower()
     if answer == "yes":
         start_btn.click()
-        ok(40, "click on 'Start campaign' confirmed and performed")
+        # If the server rejects the data, an activation-errors dialog appears.
+        # Surface its messages as a clear test failure instead of passing silently.
+        errors_dialog = page.locator("app-campaign-activation-errors-dialog")
+        appeared = False
+        try:
+            expect(errors_dialog).to_be_visible(timeout=8000)
+            appeared = True
+        except AssertionError:
+            appeared = False
+        if appeared:
+            messages = errors_dialog.locator("p.text-red-700").all_inner_texts()
+            raise AssertionError(
+                "Campaign validation failed at Start campaign:\n- "
+                + "\n- ".join(m.strip() for m in messages)
+            )
+        ok(40, "'Start campaign' performed, no validation-errors dialog shown")
     else:
         print("TEST 40 SKIPPED -> click on 'Start campaign' cancelled by the user")
 
