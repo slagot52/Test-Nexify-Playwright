@@ -628,8 +628,11 @@ def main():
         storage_state = str(AUTH_FILE)
 
         print("\nOpening the browser with the SSO session...")
-        browser = p.chromium.launch(headless=False)
-        context = browser.new_context(storage_state=storage_state)
+        # Maximize the window and use the real screen size (no_viewport=True):
+        # a small viewport makes the responsive layout collapse fields, which can
+        # make them zero-size / not clickable.
+        browser = p.chromium.launch(headless=False, args=["--start-maximized"])
+        context = browser.new_context(storage_state=storage_state, no_viewport=True)
         page = context.new_page()
 
         try:
