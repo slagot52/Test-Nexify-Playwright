@@ -186,7 +186,7 @@ def test_amazon_insertion_orders(page: Page):
     expect(manual_radio).to_be_checked()
     ok(23, "Optimization Strategy = 'Manage budget manually' (MANUAL) selected")
 
-    # TEST 24: Dates — Start tomorrow, End day after (via date-range dialog)
+    # TEST 24: IO-level dates — Start tomorrow, End day after (via date-range dialog)
     today = datetime.date.today()
     date_from = today + datetime.timedelta(days=1)
     date_to = today + datetime.timedelta(days=2)
@@ -194,15 +194,28 @@ def test_amazon_insertion_orders(page: Page):
     _set_date_range_dialog(page, date_from, date_to)
     ok(24, f"Insertion Order dates set: {date_from} → {date_to}")
 
-    # TEST 25: Unused budget = Do not change flight budgets (NO_ROLLOVER)
+    # TEST 25-27: Flight row — same dates, budget 1, currency EUR
+    flight_row = io_form.locator("div[formarrayname='flights'] div.flight-row").first
+    expect(flight_row).to_be_visible()
+    flight_row.locator("button.dt-suffix").first.click()
+    _set_date_range_dialog(page, date_from, date_to)
+    ok(25, f"Flight dates set: {date_from} → {date_to}")
+
+    fill_and_verify(flight_row, "budgetValue", "1")
+    ok(26, "Flight budget = 1")
+
+    fill_and_verify(flight_row, "currencyCode", "EUR")
+    ok(27, "Flight currency = EUR")
+
+    # TEST 28: Unused budget = Do not change flight budgets (NO_ROLLOVER)
     no_rollover = io_form.locator(
         "input[type='radio'][formcontrolname='flightBudgetRolloverStrategy'][value='NO_ROLLOVER']"
     )
     no_rollover.click()
     expect(no_rollover).to_be_checked()
-    ok(25, "Unused budget = 'Do not change flight budgets' (NO_ROLLOVER) selected")
+    ok(28, "Unused budget = 'Do not change flight budgets' (NO_ROLLOVER) selected")
 
-    # Flights, Budget Cap, Agency Fees, Off-Amazon Conversions, Frequency Caps:
+    # Budget Cap, Agency Fees, Off-Amazon Conversions, Frequency Caps:
     # left at defaults — not required for initial campaign creation.
 
     return order_name
