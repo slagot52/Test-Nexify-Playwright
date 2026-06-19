@@ -159,7 +159,7 @@ def test_amazon_insertion_orders(page: Page):
     ok(18, f"Order Name filled with '{order_name}'")
 
     # TEST 19: Media Type = Display (Select All — Display is the only option)
-    select_all_multi(page, "primaryInventoryTypes")
+    select_all_multi(page, "primaryInventoryTypes", "Display")
     ok(19, "Media Type set to 'Display' via Select All")
 
     # TEST 20: Goal = Awareness (card button)
