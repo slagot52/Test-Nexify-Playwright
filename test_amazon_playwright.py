@@ -194,7 +194,8 @@ def test_amazon_insertion_orders(page: Page):
     _set_date_range_dialog(page, date_from, date_to)
     ok(24, f"Insertion Order dates set: {date_from} → {date_to}")
 
-    # TEST 25-27: Flight row — same dates, budget 1, currency EUR
+    # TEST 25-27: Flight row — click "Add flight" to create the row, then fill it
+    io_form.locator("button.flight-add").click()
     flight_row = io_form.locator("div[formarrayname='flights'] div.flight-row").first
     expect(flight_row).to_be_visible()
     flight_row.locator("button.dt-suffix").first.click()
