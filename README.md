@@ -81,5 +81,5 @@ if you confirm by typing `yes` in the terminal.
 | 1–3   | Landing, /campaign redirect |
 | 4–16  | Create Campaign, General Info |
 | 17–27 | Insertion Orders |
-| 28–33 | Line Items |
+| 28–35 | Line Items |
 | …     | (remaining steps TBD) |
