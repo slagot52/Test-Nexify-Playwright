@@ -132,9 +132,25 @@ def test_amazon_general_info(page: Page):
 def _set_date_range_dialog(page: Page, date_from: datetime.date, date_to: datetime.date) -> None:
     dialog = page.locator("app-date-time-range-dialog")
     expect(dialog).to_be_visible()
-    dialog.locator("input[formcontrolname='startDate']").fill(date_from.strftime(DATE_FMT))
-    dialog.locator("input[formcontrolname='endDate']").fill(date_to.strftime(DATE_FMT))
-    dialog.locator("button", has_text="Apply").click()
+    start_input = dialog.locator("input[formcontrolname='startDate']")
+    end_input = dialog.locator("input[formcontrolname='endDate']")
+    start_input.fill(date_from.strftime(DATE_FMT))
+    end_input.fill(date_to.strftime(DATE_FMT))
+    end_input.press("Tab")  # force blur so the date-range input commits/parses the typed value
+    # Catch silent parsing failures here instead of a downstream server validation error.
+    expected_start = date_from.strftime(DATE_FMT)
+    expected_end = date_to.strftime(DATE_FMT)
+    assert start_input.input_value() == expected_start, (
+        f"Start date field shows '{start_input.input_value()}', expected '{expected_start}' "
+        "(the typed value was not accepted/parsed by the date-range input)"
+    )
+    assert end_input.input_value() == expected_end, (
+        f"End date field shows '{end_input.input_value()}', expected '{expected_end}' "
+        "(the typed value was not accepted/parsed by the date-range input)"
+    )
+    apply_btn = dialog.locator("button", has_text="Apply")
+    expect(apply_btn).to_be_enabled(timeout=5000)
+    apply_btn.click()
     expect(dialog).not_to_be_visible()
 
 
