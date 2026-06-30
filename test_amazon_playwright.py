@@ -274,12 +274,17 @@ def test_amazon_line_items(page: Page):
         has=page.locator("span.text-sm.font-semibold", has_text="Advertised product categories")
     )
     categories_section.locator("button", has_text="Manage").click()
-    cat_dialog = page.locator("mat-dialog-container").filter(has_text="Advertised product categories")
+    cat_dialog = page.locator("app-categories-dialog")
     expect(cat_dialog).to_be_visible(timeout=10000)
-    # Categories load collapsed: expand "Holiday, Events" then click the leaf item.
-    cat_dialog.get_by_text("Holiday, Events", exact=True).click()
-    cat_dialog.get_by_text("Black History Month", exact=True).click()
-    expect(cat_dialog.get_by_text("1 selected")).to_be_visible()
+    # Categories load collapsed: expand "Holiday, Events" first.
+    cat_dialog.locator("button[aria-label='Toggle Holiday, Events']").click()
+    # Then click the leaf row's "Include" button (clicking the row text does
+    # nothing — only the per-row Include button toggles selection).
+    leaf_row = cat_dialog.locator("mat-nested-tree-node[aria-level='2']").filter(
+        has=page.get_by_text("Black History Month", exact=True)
+    )
+    leaf_row.locator("button[aria-label='Include']").click()
+    expect(cat_dialog.locator(".count")).to_have_text("1 selected")
     cat_dialog.locator("button", has_text="Apply").click()
     expect(cat_dialog).not_to_be_visible()
     expect(categories_section.locator("text=No categories selected.")).not_to_be_visible()
