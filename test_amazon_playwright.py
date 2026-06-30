@@ -225,7 +225,7 @@ def test_amazon_insertion_orders(page: Page):
 
 
 def test_amazon_line_items(page: Page):
-    """TEST 28-37: Step 3 Line Items — navigate and fill the Ad Group form."""
+    """TEST 28-38: Step 3 Line Items — navigate and fill the Ad Group form."""
     # Navigate: Next in footer → "Confirm & continue" confirmation dialog
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
     confirm_dlg = page.locator("mat-dialog-container")
@@ -268,16 +268,32 @@ def test_amazon_line_items(page: Page):
     select_mat_option(page, "creativeRotationType", "Random")
     ok(35, "Creative Rotation = 'Random' selected and verified")
 
-    # TEST 36: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog
+    # TEST 36: Advertised product categories = "Black History Month" via the
+    # "Manage" dialog (a plain text input does not exist for this field).
+    categories_section = ad_form.locator("section").filter(
+        has=page.locator("span.text-sm.font-semibold", has_text="Advertised product categories")
+    )
+    categories_section.locator("button", has_text="Manage").click()
+    cat_dialog = page.locator("mat-dialog-container").filter(has_text="Advertised product categories")
+    expect(cat_dialog).to_be_visible(timeout=10000)
+    cat_dialog.locator("input[placeholder='Search']").fill("Black History Month")
+    cat_dialog.get_by_text("Black History Month", exact=True).click()
+    expect(cat_dialog.get_by_text("1 selected")).to_be_visible()
+    cat_dialog.locator("button", has_text="Apply").click()
+    expect(cat_dialog).not_to_be_visible()
+    expect(categories_section.locator("text=No categories selected.")).not_to_be_visible()
+    ok(36, "Advertised product categories = 'Black History Month' selected via Manage dialog")
+
+    # TEST 37: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog
     today = datetime.date.today()
     date_from = today + datetime.timedelta(days=1)
     date_to = today + datetime.timedelta(days=2)
     # Ad Group date buttons use matsuffix + edit_calendar icon (no dt-suffix class)
     ad_form.locator("button[matsuffix]").first.click()
     _set_date_range_dialog(page, date_from, date_to)
-    ok(36, f"Ad Group dates set: {date_from} → {date_to}")
+    ok(37, f"Ad Group dates set: {date_from} → {date_to}")
 
-    # TEST 37: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
+    # TEST 38: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
     budgets_section = ad_form.locator("section").filter(
         has=page.locator("span.text-base.font-bold", has_text="Budgets")
     )
@@ -285,7 +301,7 @@ def test_amazon_line_items(page: Page):
     budget_input = budgets_section.locator("input[formcontrolname='budgetValue']")
     expect(budget_input).to_be_visible(timeout=10000)
     fill_and_verify(budgets_section, "budgetValue", "1")
-    ok(37, "Ad Group Budget = 1 (EUR, Lifetime)")
+    ok(38, "Ad Group Budget = 1 (EUR, Lifetime)")
 
     return ad_group_name
 
@@ -313,7 +329,7 @@ def main():
             test_landing(page)                          # TEST 1-3
             campaign_name = test_amazon_general_info(page)  # TEST 4-16
             test_amazon_insertion_orders(page)              # TEST 17-27
-            test_amazon_line_items(page)                    # TEST 28-37
+            test_amazon_line_items(page)                    # TEST 28-38
 
             print("\nALL TESTS PASSED ✅")
             page.wait_for_timeout(3000)
