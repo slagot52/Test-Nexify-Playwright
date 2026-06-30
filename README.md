@@ -18,7 +18,6 @@ Clone the repo and set up a virtual environment:
 ```bash
 git clone git@github.com:slagot52/Test-Nexify-Playwright.git
 cd Test-Nexify-Playwright
-git checkout amazon-campaigns   # or whichever branch you need
 
 python -m venv venv
 source venv/bin/activate        # on Windows: venv\Scripts\activate
