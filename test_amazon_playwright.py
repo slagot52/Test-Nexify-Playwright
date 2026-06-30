@@ -261,10 +261,13 @@ def test_amazon_line_items(page: Page):
     _set_date_range_dialog(page, date_from, date_to)
     ok(32, f"Ad Group dates set: {date_from} → {date_to}")
 
-    # TEST 33: Budget = 1 (EUR, Lifetime) — scoped to the Budgets section
+    # TEST 33: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
     budgets_section = ad_form.locator("section").filter(
         has=page.locator("span.text-base.font-bold", has_text="Budgets")
     )
+    budgets_section.locator("button", has_text="Add Budget").click()
+    budget_input = budgets_section.locator("input[formcontrolname='budgetValue']")
+    expect(budget_input).to_be_visible(timeout=10000)
     fill_and_verify(budgets_section, "budgetValue", "1")
     ok(33, "Ad Group Budget = 1 (EUR, Lifetime)")
 
