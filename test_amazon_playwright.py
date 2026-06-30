@@ -225,7 +225,7 @@ def test_amazon_insertion_orders(page: Page):
 
 
 def test_amazon_line_items(page: Page):
-    """TEST 28-36: Step 3 Line Items — navigate and fill the Ad Group form."""
+    """TEST 28-37: Step 3 Line Items — navigate and fill the Ad Group form."""
     # Navigate: Next in footer → "Confirm & continue" confirmation dialog
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
     confirm_dlg = page.locator("mat-dialog-container")
@@ -256,24 +256,28 @@ def test_amazon_line_items(page: Page):
     select_mat_option(page, "deliveryProfile", "ASAP")
     ok(32, "Delivery Profile = 'ASAP' selected and verified")
 
-    # TEST 33: Inventory Type = Streaming TV
+    # TEST 33: Viewability Tier = Greater than 40 percent
+    select_mat_option(page, "viewabilityTier", "Greater than 40 percent")
+    ok(33, "Viewability Tier = 'Greater than 40 percent' selected and verified")
+
+    # TEST 34: Inventory Type = Streaming TV
     select_mat_option(page, "inventoryType", "Streaming TV")
-    ok(33, "Inventory Type = 'Streaming TV' selected and verified")
+    ok(34, "Inventory Type = 'Streaming TV' selected and verified")
 
-    # TEST 34: Creative Rotation = Random
+    # TEST 35: Creative Rotation = Random
     select_mat_option(page, "creativeRotationType", "Random")
-    ok(34, "Creative Rotation = 'Random' selected and verified")
+    ok(35, "Creative Rotation = 'Random' selected and verified")
 
-    # TEST 35: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog
+    # TEST 36: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog
     today = datetime.date.today()
     date_from = today + datetime.timedelta(days=1)
     date_to = today + datetime.timedelta(days=2)
     # Ad Group date buttons use matsuffix + edit_calendar icon (no dt-suffix class)
     ad_form.locator("button[matsuffix]").first.click()
     _set_date_range_dialog(page, date_from, date_to)
-    ok(35, f"Ad Group dates set: {date_from} → {date_to}")
+    ok(36, f"Ad Group dates set: {date_from} → {date_to}")
 
-    # TEST 36: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
+    # TEST 37: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
     budgets_section = ad_form.locator("section").filter(
         has=page.locator("span.text-base.font-bold", has_text="Budgets")
     )
@@ -281,7 +285,7 @@ def test_amazon_line_items(page: Page):
     budget_input = budgets_section.locator("input[formcontrolname='budgetValue']")
     expect(budget_input).to_be_visible(timeout=10000)
     fill_and_verify(budgets_section, "budgetValue", "1")
-    ok(36, "Ad Group Budget = 1 (EUR, Lifetime)")
+    ok(37, "Ad Group Budget = 1 (EUR, Lifetime)")
 
     return ad_group_name
 
@@ -309,7 +313,7 @@ def main():
             test_landing(page)                          # TEST 1-3
             campaign_name = test_amazon_general_info(page)  # TEST 4-16
             test_amazon_insertion_orders(page)              # TEST 17-27
-            test_amazon_line_items(page)                    # TEST 28-36
+            test_amazon_line_items(page)                    # TEST 28-37
 
             print("\nALL TESTS PASSED ✅")
             page.wait_for_timeout(3000)
