@@ -276,7 +276,8 @@ def test_amazon_line_items(page: Page):
     categories_section.locator("button", has_text="Manage").click()
     cat_dialog = page.locator("mat-dialog-container").filter(has_text="Advertised product categories")
     expect(cat_dialog).to_be_visible(timeout=10000)
-    cat_dialog.locator("input[placeholder='Search']").fill("Black History Month")
+    # Categories load collapsed: expand "Holiday, Events" then click the leaf item.
+    cat_dialog.get_by_text("Holiday, Events", exact=True).click()
     cat_dialog.get_by_text("Black History Month", exact=True).click()
     expect(cat_dialog.get_by_text("1 selected")).to_be_visible()
     cat_dialog.locator("button", has_text="Apply").click()
