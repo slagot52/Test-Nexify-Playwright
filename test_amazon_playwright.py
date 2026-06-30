@@ -137,8 +137,6 @@ def _set_date_range_dialog(page: Page, date_from: datetime.date, date_to: dateti
     start_input.fill(date_from.strftime(DATE_FMT))
     end_input.fill(date_to.strftime(DATE_FMT))
     end_input.press("Tab")  # force blur so the date-range input commits/parses the typed value
-    page.keyboard.press("Escape")  # dismiss any calendar overlay opened by Tab/focus, it can
-    # otherwise intercept pointer events meant for the Apply button below.
     # Catch silent parsing failures here instead of a downstream server validation error.
     # The field re-renders the parsed date in its own locale format (e.g. "1/7/2026"
     # for the value we filled as "07/01/2026"), so just check it isn't empty rather
