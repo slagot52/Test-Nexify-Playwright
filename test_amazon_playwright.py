@@ -189,18 +189,11 @@ def test_amazon_insertion_orders(page: Page):
     page.wait_for_timeout(1500)
     ok(23, "Optimization Strategy = 'Manage budget manually' (MANUAL) selected")
 
-    # TEST 24: IO-level dates — Start tomorrow, End day after (via date-range dialog)
+    # TEST 24-26: Flight row — with MANUAL budget allocation there is no
+    # IO-level "Dates" section: dates are set per-flight only.
     today = datetime.date.today()
     date_from = today + datetime.timedelta(days=1)
     date_to = today + datetime.timedelta(days=2)
-    start_date_btn = io_form.locator("button.dt-suffix").first
-    expect(start_date_btn).to_be_visible(timeout=10000)
-    start_date_btn.scroll_into_view_if_needed()
-    start_date_btn.click()
-    _set_date_range_dialog(page, date_from, date_to)
-    ok(24, f"Insertion Order dates set: {date_from} → {date_to}")
-
-    # TEST 25-27: Flight row — click "Add flight" to create the row, then fill it
     io_form.locator("button.flight-add").click()
     flight_row = io_form.locator("div[formarrayname='flights'] div.flight-row").first
     expect(flight_row).to_be_visible()
@@ -209,21 +202,21 @@ def test_amazon_insertion_orders(page: Page):
     flight_date_btn.scroll_into_view_if_needed()
     flight_date_btn.click()
     _set_date_range_dialog(page, date_from, date_to)
-    ok(25, f"Flight dates set: {date_from} → {date_to}")
+    ok(24, f"Flight dates set: {date_from} → {date_to}")
 
     fill_and_verify(flight_row, "budgetValue", "1")
-    ok(26, "Flight budget = 1")
+    ok(25, "Flight budget = 1")
 
     fill_and_verify(flight_row, "currencyCode", "EUR")
-    ok(27, "Flight currency = EUR")
+    ok(26, "Flight currency = EUR")
 
-    # TEST 28: Unused budget = Do not change flight budgets (NO_ROLLOVER)
+    # TEST 27: Unused budget = Do not change flight budgets (NO_ROLLOVER)
     no_rollover = io_form.locator(
         "input[type='radio'][formcontrolname='flightBudgetRolloverStrategy'][value='NO_ROLLOVER']"
     )
     no_rollover.click()
     expect(no_rollover).to_be_checked()
-    ok(28, "Unused budget = 'Do not change flight budgets' (NO_ROLLOVER) selected")
+    ok(27, "Unused budget = 'Do not change flight budgets' (NO_ROLLOVER) selected")
 
     # Budget Cap, Agency Fees, Off-Amazon Conversions, Frequency Caps:
     # left at defaults — not required for initial campaign creation.
@@ -232,7 +225,7 @@ def test_amazon_insertion_orders(page: Page):
 
 
 def test_amazon_line_items(page: Page):
-    """TEST 29-34: Step 3 Line Items — navigate and fill the Ad Group form."""
+    """TEST 28-33: Step 3 Line Items — navigate and fill the Ad Group form."""
     # Navigate: Next in footer → "Confirm & continue" confirmation dialog
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
     confirm_dlg = page.locator("mat-dialog-container")
@@ -244,36 +237,36 @@ def test_amazon_line_items(page: Page):
     expect(li).to_be_visible(timeout=10000)
     ad_form = li.locator("app-amazon-ad-groups form")
     expect(ad_form).to_be_visible()
-    ok(29, "navigated to Line Items, Ad Group form visible")
+    ok(28, "navigated to Line Items, Ad Group form visible")
 
-    # TEST 30: Ad Group Name
+    # TEST 29: Ad Group Name
     ad_group_name = f"Test AG Amazon - {int(time.time())}"
     fill_and_verify(ad_form, "name", ad_group_name)
-    ok(30, f"Ad Group Name = '{ad_group_name}'")
+    ok(29, f"Ad Group Name = '{ad_group_name}'")
 
-    # TEST 31: Base Bid = 1
+    # TEST 30: Base Bid = 1
     fill_and_verify(ad_form, "baseBid", "1")
-    ok(31, "Base Bid = 1")
+    ok(30, "Base Bid = 1")
 
-    # TEST 32: Max Average Bid = 1
+    # TEST 31: Max Average Bid = 1
     fill_and_verify(ad_form, "maxAverageBid", "1")
-    ok(32, "Max Average Bid = 1")
+    ok(31, "Max Average Bid = 1")
 
-    # TEST 33: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog
+    # TEST 32: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog
     today = datetime.date.today()
     date_from = today + datetime.timedelta(days=1)
     date_to = today + datetime.timedelta(days=2)
     # Ad Group date buttons use matsuffix + edit_calendar icon (no dt-suffix class)
     ad_form.locator("button[matsuffix]").first.click()
     _set_date_range_dialog(page, date_from, date_to)
-    ok(33, f"Ad Group dates set: {date_from} → {date_to}")
+    ok(32, f"Ad Group dates set: {date_from} → {date_to}")
 
-    # TEST 34: Budget = 1 (EUR, Lifetime) — scoped to the Budgets section
+    # TEST 33: Budget = 1 (EUR, Lifetime) — scoped to the Budgets section
     budgets_section = ad_form.locator("section").filter(
         has=page.locator("span.text-base.font-bold", has_text="Budgets")
     )
     fill_and_verify(budgets_section, "budgetValue", "1")
-    ok(34, "Ad Group Budget = 1 (EUR, Lifetime)")
+    ok(33, "Ad Group Budget = 1 (EUR, Lifetime)")
 
     return ad_group_name
 
@@ -300,8 +293,8 @@ def main():
         try:
             test_landing(page)                          # TEST 1-3
             campaign_name = test_amazon_general_info(page)  # TEST 4-16
-            test_amazon_insertion_orders(page)              # TEST 17-28
-            test_amazon_line_items(page)                    # TEST 29-34
+            test_amazon_insertion_orders(page)              # TEST 17-27
+            test_amazon_line_items(page)                    # TEST 28-33
 
             print("\nALL TESTS PASSED ✅")
             page.wait_for_timeout(3000)
