@@ -290,16 +290,7 @@ def test_amazon_line_items(page: Page):
     expect(categories_section.locator("text=No categories selected.")).not_to_be_visible()
     ok(36, "Advertised product categories = 'Black History Month' selected via Manage dialog")
 
-    # TEST 37: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog
-    today = datetime.date.today()
-    date_from = today + datetime.timedelta(days=1)
-    date_to = today + datetime.timedelta(days=2)
-    # Ad Group date buttons use matsuffix + edit_calendar icon (no dt-suffix class)
-    ad_form.locator("button[matsuffix]").first.click()
-    _set_date_range_dialog(page, date_from, date_to)
-    ok(37, f"Ad Group dates set: {date_from} → {date_to}")
-
-    # TEST 38: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
+    # TEST 37: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
     budgets_section = ad_form.locator("section").filter(
         has=page.locator("span.text-base.font-bold", has_text="Budgets")
     )
@@ -307,7 +298,25 @@ def test_amazon_line_items(page: Page):
     budget_input = budgets_section.locator("input[formcontrolname='budgetValue']")
     expect(budget_input).to_be_visible(timeout=10000)
     fill_and_verify(budgets_section, "budgetValue", "1")
-    ok(38, "Ad Group Budget = 1 (EUR, Lifetime)")
+    ok(37, "Ad Group Budget = 1 (EUR, Lifetime)")
+
+    # TEST 38: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog.
+    # Set last (after Budget): adding a budget row can trigger a debounced
+    # re-render that wipes an earlier date selection, so verify + retry once.
+    today = datetime.date.today()
+    date_from = today + datetime.timedelta(days=1)
+    date_to = today + datetime.timedelta(days=2)
+    dates_section = ad_form.locator("section").filter(
+        has=page.locator("span.text-base.font-bold", has_text="Dates")
+    )
+    start_date_input = dates_section.locator("input").first
+    for attempt in range(2):
+        dates_section.locator("button[matsuffix]").first.click()
+        _set_date_range_dialog(page, date_from, date_to)
+        if start_date_input.input_value().strip():
+            break
+    expect(start_date_input).not_to_have_value("")
+    ok(38, f"Ad Group dates set: {date_from} → {date_to}")
 
     return ad_group_name
 
