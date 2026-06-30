@@ -304,6 +304,9 @@ def test_amazon_line_items(page: Page):
     expect(cat_dialog).not_to_be_visible()
     expect(categories_section.locator("text=No categories selected.")).not_to_be_visible()
     ok(36, "Advertised product categories = 'Black History Month' selected via Manage dialog")
+    # Let any debounced re-render triggered by the categories dialog settle
+    # before touching Budget/Dates below (same pattern seen elsewhere in this app).
+    page.wait_for_timeout(1500)
 
     # TEST 37: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
     budgets_section = ad_form.locator("section").filter(
@@ -332,6 +335,18 @@ def test_amazon_line_items(page: Page):
             break
     expect(start_date_input).not_to_have_value("")
     ok(38, f"Ad Group dates set: {date_from} → {date_to}")
+
+    # Persistence guard: wait for any trailing debounced re-render to settle,
+    # then re-verify Budget and Dates weren't silently wiped afterward (the
+    # server has previously rejected campaigns with these fields empty even
+    # though they read back as filled immediately after being set).
+    page.wait_for_timeout(1500)
+    if not budget_input.input_value().strip():
+        fill_and_verify(budgets_section, "budgetValue", "1")
+    if not start_date_input.input_value().strip():
+        dates_section.locator("button[matsuffix]").first.click()
+        _set_date_range_dialog(page, date_from, date_to)
+        expect(start_date_input).not_to_have_value("")
 
     return ad_group_name
 
