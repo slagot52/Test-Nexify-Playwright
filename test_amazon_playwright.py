@@ -184,13 +184,19 @@ def test_amazon_insertion_orders(page: Page):
     )
     manual_radio.click()
     expect(manual_radio).to_be_checked()
+    # Selecting MANUAL triggers a debounced re-render of the Budget & Flights
+    # section: let it settle before grabbing locators inside it.
+    page.wait_for_timeout(1500)
     ok(23, "Optimization Strategy = 'Manage budget manually' (MANUAL) selected")
 
     # TEST 24: IO-level dates — Start tomorrow, End day after (via date-range dialog)
     today = datetime.date.today()
     date_from = today + datetime.timedelta(days=1)
     date_to = today + datetime.timedelta(days=2)
-    io_form.locator("button.dt-suffix").first.click()
+    start_date_btn = io_form.locator("button.dt-suffix").first
+    expect(start_date_btn).to_be_visible(timeout=10000)
+    start_date_btn.scroll_into_view_if_needed()
+    start_date_btn.click()
     _set_date_range_dialog(page, date_from, date_to)
     ok(24, f"Insertion Order dates set: {date_from} → {date_to}")
 
@@ -198,7 +204,10 @@ def test_amazon_insertion_orders(page: Page):
     io_form.locator("button.flight-add").click()
     flight_row = io_form.locator("div[formarrayname='flights'] div.flight-row").first
     expect(flight_row).to_be_visible()
-    flight_row.locator("button.dt-suffix").first.click()
+    flight_date_btn = flight_row.locator("button.dt-suffix").first
+    expect(flight_date_btn).to_be_visible(timeout=10000)
+    flight_date_btn.scroll_into_view_if_needed()
+    flight_date_btn.click()
     _set_date_range_dialog(page, date_from, date_to)
     ok(25, f"Flight dates set: {date_from} → {date_to}")
 
