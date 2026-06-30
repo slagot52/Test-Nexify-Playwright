@@ -82,4 +82,4 @@ if you confirm by typing `yes` in the terminal.
 | 4–16  | Create Campaign, General Info |
 | 17–27 | Insertion Orders |
 | 28–38 | Line Items |
-| …     | (remaining steps TBD) |
+| 39–40 | Recap + Start campaign (with confirmation gate) |

@@ -312,6 +312,49 @@ def test_amazon_line_items(page: Page):
     return ad_group_name
 
 
+def test_amazon_recap(page: Page):
+    """TEST 39-40: Recap step, Start campaign (user-gated)."""
+    # Navigate: Next in footer → "Confirm & continue" confirmation dialog (best-effort)
+    page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
+    confirm_dlg = page.locator("mat-dialog-container")
+    try:
+        expect(confirm_dlg).to_be_visible(timeout=5000)
+        confirm_dlg.locator("button", has_text="Confirm & continue").click()
+        expect(confirm_dlg).not_to_be_visible()
+    except AssertionError:
+        pass
+    ok(39, "navigated to the Recap step")
+
+    # TEST 40: click "Start campaign".
+    # WARNING: this is a consequential action (it actually LAUNCHES the Amazon
+    # campaign) and is hard to undo. The click happens ONLY if the user types 'yes'.
+    start_btn = page.locator("button.mdc-button", has_text="Start campaign")
+    expect(start_btn).to_be_visible(timeout=10000)
+    answer = input(
+        "\n>>> 'Start campaign' ACTUALLY LAUNCHES the Amazon campaign. "
+        "Type 'yes' to confirm the click (anything else cancels): "
+    ).strip().lower()
+    if answer == "yes":
+        start_btn.click()
+        # If the server rejects the data, an activation-errors dialog appears.
+        errors_dialog = page.locator("app-campaign-activation-errors-dialog")
+        appeared = False
+        try:
+            expect(errors_dialog).to_be_visible(timeout=8000)
+            appeared = True
+        except AssertionError:
+            appeared = False
+        if appeared:
+            messages = errors_dialog.locator("p.text-red-700").all_inner_texts()
+            raise AssertionError(
+                "Campaign validation failed at Start campaign:\n- "
+                + "\n- ".join(m.strip() for m in messages)
+            )
+        ok(40, "'Start campaign' performed, no validation-errors dialog shown")
+    else:
+        print("TEST 40 SKIPPED -> click on 'Start campaign' cancelled by the user")
+
+
 # --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
@@ -336,6 +379,7 @@ def main():
             campaign_name = test_amazon_general_info(page)  # TEST 4-16
             test_amazon_insertion_orders(page)              # TEST 17-27
             test_amazon_line_items(page)                    # TEST 28-38
+            test_amazon_recap(page)                         # TEST 39-40
 
             print("\nALL TESTS PASSED ✅")
             page.wait_for_timeout(3000)
