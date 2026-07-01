@@ -496,7 +496,7 @@ def test_line_items(page: Page):
 
 
 def test_line_items_form(page: Page):
-    """TEST 41-58: fill the DV360 Line Items form."""
+    """TEST 41-61: fill the DV360 Line Items form."""
     li_form = page.locator("app-dv360-line-items form")
     expect(li_form).to_be_visible()
 
@@ -551,23 +551,47 @@ def test_line_items_form(page: Page):
     select_mat_option(page, "containsEuPoliticalAds", "Does not contain EU political advertising")
     ok(51, "EU Political Ads = 'Does not contain EU political advertising' selected")
 
-    # TEST 52: Bid strategy = Fixed bid
+    # TEST 52: "Maximize Reach" removed from Bid strategy options (regression
+    # check for the DV360 bid-strategy cleanup).
+    bid_select = li_form.locator("mat-select[formcontrolname='bidStrategyType']")
+    expect(bid_select).to_be_visible()
+    bid_select.scroll_into_view_if_needed()
+    bid_select_id = bid_select.get_attribute("id")
+    bid_select.click(force=True)
+    expect(bid_select).to_have_attribute("aria-expanded", "true")
+    bid_panel = page.locator(f"#{bid_select_id}-panel")
+    expect(bid_panel).to_be_visible()
+    expect(bid_panel.get_by_role("option", name="Maximize Reach", exact=True)).to_have_count(0)
+    page.keyboard.press("Escape")
+    ok(52, "'Maximize Reach' confirmed removed from Bid strategy options")
+
+    # TEST 53: Bid strategy = Fixed bid
     select_mat_option(page, "bidStrategyType", "Fixed bid")
-    ok(52, "Bid strategy = 'Fixed bid' selected and verified")
+    ok(53, "Bid strategy = 'Fixed bid' selected and verified")
 
-    # TEST 53: Bid amount (CPM) = 1
+    # TEST 54: Bid amount (CPM) = 1
     fill_and_verify(li_form, "bidAmount", "1")
-    ok(53, "Bid amount (CPM) = 1 entered and verified")
+    ok(54, "Bid amount (CPM) = 1 entered and verified")
 
-    # TEST 54: Partner revenue model = Total Media Cost
+    # TEST 55: Partner revenue model = Total Media Cost
     select_mat_option(page, "partnerRevenueModelMarkupType", "Total Media Cost")
-    ok(54, "Partner revenue model = 'Total Media Cost' selected and verified")
+    ok(55, "Partner revenue model = 'Total Media Cost' selected and verified")
 
-    # TEST 55: Markup = 0
+    # TEST 56: Markup = 0
     fill_and_verify(li_form, "partnerRevenueModelMarkupValue", "0")
-    ok(55, "Markup = 0 entered and verified")
+    ok(56, "Markup = 0 entered and verified")
 
-    # TEST 56: click "Add fee" (mat-menu-trigger) and select the "CPM fee" item.
+    # TEST 57: "Partner costs" section shown at Line Item level (not inside the
+    # Insertion Order) with the corrected copy.
+    expect(li_form.get_by_text("Partner costs", exact=True)).to_be_visible()
+    expect(li_form.get_by_text("Leave empty to inherit from the partner.", exact=True)).to_be_visible()
+    ok(57, "'Partner costs' section present at Line Item level with corrected copy")
+
+    # TEST 58: "Brand safety prebids" field removed (not connected to backend).
+    expect(li_form.get_by_text("Brand safety prebids")).to_have_count(0)
+    ok(58, "'Brand safety prebids' field confirmed removed")
+
+    # TEST 59: click "Add fee" (mat-menu-trigger) and select the "CPM fee" item.
     add_fee_btn = li_form.locator("button.mat-mdc-menu-trigger", has_text="Add fee")
     expect(add_fee_btn).to_be_visible()
     add_fee_btn.scroll_into_view_if_needed()
@@ -593,14 +617,14 @@ def test_line_items_form(page: Page):
     page.get_by_role("menuitem", name="CPM fee", exact=True).click()
     # After selection the menu closes (trigger no longer expanded).
     expect(add_fee_btn).to_have_attribute("aria-expanded", "false")
-    ok(56, "clicked 'Add fee' and selected the 'CPM fee' item")
+    ok(59, "clicked 'Add fee' and selected the 'CPM fee' item")
 
-    # TEST 57: click "Next" in the footer to proceed.
+    # TEST 60: click "Next" in the footer to proceed.
     footer = page.locator("div.step-footer")
     footer.locator("button.mdc-button", has_text="Next").click()
-    ok(57, "click on 'Next' in the footer performed")
+    ok(60, "click on 'Next' in the footer performed")
 
-    # TEST 58: click "Start campaign".
+    # TEST 61: click "Start campaign".
     # WARNING: this is a consequential action (it actually LAUNCHES the campaign)
     # and is hard to undo. For safety we require explicit confirmation from the
     # terminal: the click happens ONLY if the user types 'yes'.
@@ -627,9 +651,9 @@ def test_line_items_form(page: Page):
                 "Campaign validation failed at Start campaign:\n- "
                 + "\n- ".join(m.strip() for m in messages)
             )
-        ok(58, "'Start campaign' performed, no validation-errors dialog shown")
+        ok(61, "'Start campaign' performed, no validation-errors dialog shown")
     else:
-        print("TEST 58 SKIPPED -> click on 'Start campaign' cancelled by the user")
+        print("TEST 61 SKIPPED -> click on 'Start campaign' cancelled by the user")
 
 
 # --------------------------------------------------------------------------

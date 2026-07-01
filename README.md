@@ -56,9 +56,9 @@ Make sure the virtual environment is activated (`source venv/bin/activate`),
 then run any of:
 
 ```bash
-python test_dv360_playwright.py    # DV360 suite  (58 tests)
-python test_ttd_playwright.py      # TTD suite    (43 tests)
-python test_amazon_playwright.py   # Amazon DSP suite (40 tests)
+python test_dv360_playwright.py    # DV360 suite  (61 tests)
+python test_ttd_playwright.py      # TTD suite    (45 tests)
+python test_amazon_playwright.py   # Amazon DSP suite (41 tests)
 ```
 
 Each run:
@@ -105,7 +105,7 @@ others first.
 | 17–26 | Global Setup |
 | 27–37 | Insertion Orders |
 | 38    | Sidebar sync check |
-| 39–58 | Line Items + Start campaign |
+| 39–61 | Line Items + Start campaign |
 
 ## TTD test structure
 
@@ -114,9 +114,9 @@ others first.
 | 1–3   | Landing, /campaign redirect |
 | 4–16  | Create Campaign, General Info |
 | 17–22 | Global Setup |
-| 23–30 | Campaign Channels |
-| 31–38 | Ad Groups |
-| 39–43 | Recap + Start campaign |
+| 23–31 | Campaign Channels |
+| 32–40 | Ad Groups |
+| 41–45 | Recap + Start campaign |
 
 ## Amazon DSP test structure
 
@@ -124,9 +124,9 @@ others first.
 |-------|---------|
 | 1–3   | Landing, /campaign redirect |
 | 4–16  | Create Campaign, General Info |
-| 17–27 | Insertion Orders |
-| 28–38 | Line Items |
-| 39–40 | Recap + Start campaign (with confirmation gate) |
+| 17–28 | Insertion Orders |
+| 29–39 | Line Items |
+| 40–41 | Recap + Start campaign (with confirmation gate) |
 
 ## Troubleshooting
 
