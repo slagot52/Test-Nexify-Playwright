@@ -24,7 +24,6 @@ from test_dv360_playwright import (
     DATE_FMT,
     ok,
     select_mat_option,
-    select_all_multi,
     fill_and_verify,
     manual_login,
     test_landing,  # generic /campaign landing check (DSP-agnostic), reused as-is
@@ -178,9 +177,12 @@ def test_amazon_insertion_orders(page: Page):
     fill_and_verify(io_form, "purchaseOrderNumber", purchase_order)
     ok(19, f"Purchase Order Number filled with '{purchase_order}' at IO level")
 
-    # TEST 20: Media Type = Display (Select All — Display is the only option)
-    select_all_multi(page, "primaryInventoryTypes", "Display")
-    ok(20, "Media Type set to 'Display' via Select All")
+    # TEST 20: "Media Type" (primaryInventoryTypes) confirmed removed from the
+    # Insertion Order form (regression check — this field used to require
+    # selecting "Display" here; it no longer appears anywhere on this step).
+    expect(io_form.locator("mat-select[formcontrolname='primaryInventoryTypes']")).to_have_count(0)
+    expect(io_form.get_by_text("Media Type", exact=False)).to_have_count(0)
+    ok(20, "'Media Type' confirmed removed from the Insertion Order form")
 
     # TEST 21: Goal = Awareness (card button)
     goal_card = io_form.locator("button.goal-card", has_text="Awareness")
