@@ -238,7 +238,7 @@ def test_ttd_global_setup(page: Page):
 
 
 def test_ttd_campaign_channels(page: Page):
-    """TEST 23-30: TTD Campaign Channels (channel, pacing, KPIs, flight)."""
+    """TEST 23-31: TTD Campaign Channels (channel, pacing, KPIs, flight, conversion reporting)."""
     # Navigate from Global Setup with "Next" (re-click if the first only blurs).
     cc_form = page.locator("app-ttd-campaign-channels form")
     for _ in range(3):
@@ -295,57 +295,91 @@ def test_ttd_campaign_channels(page: Page):
     fill_and_verify(flight, "budgetAmount", "1")
     ok(30, "Flight Budget = 1 entered and verified")
 
-    # Secondary/Tertiary KPI left as 'None'; Fee card and Conversion reporting
-    # are optional and skipped.
+    # TEST 31: Conversion reporting — Cross-Device Concept options
+    # (None/Person/Household) + Vendor dropdown unlocked once Concept != None.
+    conv_section = cc_form.locator("section.frequency-section").filter(
+        has=page.get_by_text("Conversion reporting", exact=True)
+    )
+    conv_section.locator("button", has_text="Configure").click()
+    conv_dialog = page.get_by_role("dialog").filter(has_text="Configure campaign reporting and attribution")
+    expect(conv_dialog).to_be_visible()
+    conv_dialog.locator("button", has_text="Add conversion data source").click()
+
+    concept_select = conv_dialog.locator("mat-select[formcontrolname='crossDeviceConcept']")
+    expect(concept_select).to_contain_text("None")
+    concept_select_id = concept_select.get_attribute("id")
+    concept_select.click(force=True)
+    concept_panel = page.locator(f"#{concept_select_id}-panel")
+    expect(concept_panel).to_be_visible()
+    for option_name in ("None", "Person", "Household"):
+        expect(concept_panel.get_by_role("option", name=option_name, exact=True)).to_be_visible()
+    concept_panel.get_by_role("option", name="Person", exact=True).click()
+    expect(concept_select).to_contain_text("Person")
+
+    vendor_select = conv_dialog.locator("mat-select[formcontrolname='crossDeviceAttributionModelId']")
+    expect(vendor_select).not_to_have_attribute("aria-disabled", "true")
+    vendor_select_id = vendor_select.get_attribute("id")
+    vendor_select.click(force=True)
+    vendor_panel = page.locator(f"#{vendor_select_id}-panel")
+    expect(vendor_panel).to_be_visible()
+    vendor_panel.get_by_role("option", name="LiveRamp IdentityLink", exact=True).click()
+    expect(vendor_select).to_contain_text("LiveRamp IdentityLink")
+
+    conv_dialog.locator("button", has_text="Apply").click()
+    expect(conv_dialog).not_to_be_visible()
+    ok(31, "Conversion reporting: Cross-Device Concept options (None/Person/Household) verified, "
+           "Vendor unlocked and 'LiveRamp IdentityLink' selected after Concept='Person'")
+
+    # Secondary/Tertiary KPI left as 'None'; Fee card is optional and skipped.
 
 
 def test_ttd_ad_groups(page: Page):
-    """TEST 31-38: Step 4 Ad Groups (with channels summary dialog confirmation)."""
+    """TEST 32-40: Step 4 Ad Groups (with channels summary dialog confirmation)."""
     # From Campaign Channels click "Next": the summary dialog opens (same
     # dv360-io-summary-dialog component as DV360, with TTD content).
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
 
-    # TEST 31: "Review insertion orders" dialog, confirm with "Confirm & continue".
+    # TEST 32: "Review insertion orders" dialog, confirm with "Confirm & continue".
     dialog = page.locator("dv360-io-summary-dialog")
     expect(dialog).to_be_visible()
     expect(dialog.locator("h2", has_text="Review insertion orders")).to_be_visible()
     dialog.locator("button.mdc-button", has_text="Confirm & continue").click()
     expect(dialog).not_to_be_visible()
-    ok(31, "'Review insertion orders' dialog confirmed with 'Confirm & continue'")
+    ok(32, "'Review insertion orders' dialog confirmed with 'Confirm & continue'")
 
-    # TEST 32: verify the "Line Items" step (Step 4, = Ad Groups) is selected.
+    # TEST 33: verify the "Line Items" step (Step 4, = Ad Groups) is selected.
     step = page.locator("dx-stepper div.dx-step", has_text="Line Items")
     expect(step).to_have_attribute("aria-selected", "true")
-    ok(32, "navigated to Step 4 (Ad Groups / 'Line Items' step selected)")
+    ok(33, "navigated to Step 4 (Ad Groups / 'Line Items' step selected)")
 
     ag_form = page.locator("app-ttd-ad-groups form")
     expect(ag_form).to_be_visible()
 
-    # TEST 33: Ad Group Name = "Test AD - " + unix timestamp
+    # TEST 34: Ad Group Name = "Test AD - " + unix timestamp
     ad_group_name = f"Test AD - {int(time.time())}"
     fill_and_verify(ag_form, "adGroupName", ad_group_name)
-    ok(33, f"Ad Group Name filled with '{ad_group_name}'")
+    ok(34, f"Ad Group Name filled with '{ad_group_name}'")
 
-    # TEST 34: Channel = Audio.
+    # TEST 35: Channel = Audio.
     # Changing the channel reloads the ad group config in a DEBOUNCED way and can
     # reset Funnel Location and the bid fields. We set the channel FIRST and wait
     # for the reload to settle before filling the others.
     select_mat_option(page, "channelId", "Audio")
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(2500)
-    ok(34, "Channel = 'Audio' selected and verified")
+    ok(35, "Channel = 'Audio' selected and verified")
 
-    # TEST 35: Funnel Location = Awareness
+    # TEST 36: Funnel Location = Awareness
     select_mat_option(page, "funnelLocation", "Awareness")
-    ok(35, "Funnel Location = 'Awareness' selected and verified")
+    ok(36, "Funnel Location = 'Awareness' selected and verified")
 
-    # TEST 36: Base Bid CPM = 1
+    # TEST 37: Base Bid CPM = 1
     fill_and_verify(ag_form, "baseBidAmount", "1")
-    ok(36, "Base Bid CPM = 1 entered and verified")
+    ok(37, "Base Bid CPM = 1 entered and verified")
 
-    # TEST 37: Max Bid CPM = 1
+    # TEST 38: Max Bid CPM = 1
     fill_and_verify(ag_form, "maxBidAmount", "1")
-    ok(37, "Max Bid CPM = 1 entered and verified")
+    ok(38, "Max Bid CPM = 1 entered and verified")
 
     # Persistence guard: a late debounced reload (from the channel change) may
     # clear Funnel Location / bids after we set them. Re-apply any that got reset,
@@ -364,23 +398,31 @@ def test_ttd_ad_groups(page: Page):
         "Funnel Location is empty after the guard"
     assert base_bid.input_value() and max_bid.input_value(), "Bid fields empty after the guard"
 
-    # TEST 38: "Enabled" checkbox confirmed checked.
+    # TEST 39: "Enabled" checkbox confirmed checked.
     enabled_cb = ag_form.locator("mat-checkbox[formcontrolname='isEnabled']")
     enabled_input = enabled_cb.locator("input[type='checkbox']")
     if not enabled_input.is_checked():
         enabled_cb.click()
     expect(enabled_input).to_be_checked()
-    ok(38, "'Enabled' checkbox confirmed checked")
+    ok(39, "'Enabled' checkbox confirmed checked")
+
+    # TEST 40: "Deals & Contracts" section reordered directly below "Geography".
+    section_headings = ag_form.locator("span.text-base.font-bold").all_inner_texts()
+    geo_idx = section_headings.index("Geography")
+    assert section_headings[geo_idx + 1] == "Deals & Contracts", (
+        f"Expected 'Deals & Contracts' right after 'Geography', got order: {section_headings}"
+    )
+    ok(40, "'Deals & Contracts' section confirmed reordered directly below 'Geography'")
 
     # Left at defaults / skipped: Description, currencies (EUR), Goal Type
     # (None), Audience (Target Everyone), Predictive Clearing, and all the
-    # optional list sections (Geography already has Spain, Device Type, Ad
-    # Environment, Publisher List, Category, Supply Vendor, Deals, Contextual
-    # Keywords).
+    # optional list sections (Geography already has Spain, Deals & Contracts,
+    # Device Type, Ad Environment, Publisher List, Category, Supply Vendor,
+    # Contextual Keywords).
 
 
 def test_ttd_recap(page: Page, campaign_name: str):
-    """TEST 39-43: Recap, Start campaign (user-gated), redirect + submitted check."""
+    """TEST 41-45: Recap, Start campaign (user-gated), redirect + submitted check."""
     # From Ad Groups click "Next" to reach the Recap step. A summary dialog may
     # appear (as on the channels step): dismiss it best-effort if it does.
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
@@ -392,16 +434,16 @@ def test_ttd_recap(page: Page, campaign_name: str):
     except AssertionError:
         pass
 
-    # TEST 39: Recap step loaded.
+    # TEST 41: Recap step loaded.
     expect(page.locator("app-recap-and-validate")).to_be_visible()
     expect(
         page.locator("span.pb-5.text-4xl.font-bold", has_text="Review before creating the Campaign")
     ).to_be_visible()
     recap_step = page.locator("dx-stepper div.dx-step", has_text="Recap")
     expect(recap_step).to_have_attribute("aria-selected", "true")
-    ok(39, "navigated to the Recap step ('Review before creating the Campaign')")
+    ok(41, "navigated to the Recap step ('Review before creating the Campaign')")
 
-    # TEST 40: click "Start campaign".
+    # TEST 42: click "Start campaign".
     # WARNING: this is a consequential action (it actually LAUNCHES the TTD
     # campaign) and is hard to undo. The click happens ONLY if the user types 'yes'.
     start_btn = page.locator("button.mdc-button", has_text="Start campaign")
@@ -427,16 +469,16 @@ def test_ttd_recap(page: Page, campaign_name: str):
                 "Campaign validation failed at Start campaign:\n- "
                 + "\n- ".join(m.strip() for m in messages)
             )
-        ok(40, "'Start campaign' performed, no validation-errors dialog shown")
+        ok(42, "'Start campaign' performed, no validation-errors dialog shown")
 
-        # TEST 41: on success the app redirects back to the campaigns list.
+        # TEST 43: on success the app redirects back to the campaigns list.
         page.wait_for_url("**/campaign", timeout=15000)
         assert page.url.rstrip("/") == f"{BASE_URL}/campaign", (
             f"Expected redirect to {BASE_URL}/campaign\nActual URL: {page.url}"
         )
-        ok(41, f"redirected to the campaigns list ({page.url})")
+        ok(43, f"redirected to the campaigns list ({page.url})")
 
-        # TEST 42: the just-created campaign appears as a row in the table.
+        # TEST 44: the just-created campaign appears as a row in the table.
         # The campaigns list is a dx-data-grid; search to filter (handles
         # pagination), then target the row whose Name cell (column 1) matches.
         grid = page.locator("div.border.border-slate-200.rounded-xl dx-data-grid")
@@ -447,13 +489,13 @@ def test_ttd_recap(page: Page, campaign_name: str):
         )
         expect(campaign_row).to_have_count(1)
         expect(campaign_row).to_be_visible()
-        ok(42, f"campaign '{campaign_name}' found in the campaigns table")
+        ok(44, f"campaign '{campaign_name}' found in the campaigns table")
 
-        # TEST 43: that campaign is in 'SUBMITTED' status (Status is column 9).
+        # TEST 45: that campaign is in 'SUBMITTED' status (Status is column 9).
         expect(campaign_row.locator("td[aria-colindex='9']")).to_contain_text("SUBMITTED")
-        ok(43, f"campaign '{campaign_name}' is in 'SUBMITTED' status")
+        ok(45, f"campaign '{campaign_name}' is in 'SUBMITTED' status")
     else:
-        print("TEST 40 SKIPPED -> click on 'Start campaign' cancelled by the user")
+        print("TEST 42 SKIPPED -> click on 'Start campaign' cancelled by the user")
 
 
 # --------------------------------------------------------------------------
@@ -480,9 +522,9 @@ def main():
             test_landing(page)              # TEST 1-3 (shared, DSP-agnostic)
             campaign_name = test_ttd_general_info(page)  # TEST 4-16
             test_ttd_global_setup(page)     # TEST 17-22
-            test_ttd_campaign_channels(page)  # TEST 23-30
-            test_ttd_ad_groups(page)        # TEST 31-38
-            test_ttd_recap(page, campaign_name)  # TEST 39-43 (Start + submitted check)
+            test_ttd_campaign_channels(page)  # TEST 23-31
+            test_ttd_ad_groups(page)        # TEST 32-40
+            test_ttd_recap(page, campaign_name)  # TEST 41-45 (Start + submitted check)
 
             print("\nALL TESTS PASSED ✅")
             page.wait_for_timeout(3000)
