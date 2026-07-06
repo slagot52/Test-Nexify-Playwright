@@ -152,7 +152,7 @@ def _set_date_range_dialog(page: Page, date_from: datetime.date, date_to: dateti
     expect(dialog).not_to_be_visible()
 
 
-def test_amazon_insertion_orders(page: Page):
+def test_amazon_insertion_orders(page: Page, date_from: datetime.date, date_to: datetime.date):
     """TEST 17-28: Step 2 Insertion Orders (Amazon skips Global Setup)."""
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
     # Dismiss template selector dialog if it appears.
@@ -213,9 +213,6 @@ def test_amazon_insertion_orders(page: Page):
 
     # TEST 25-27: Flight row — with MANUAL budget allocation there is no
     # IO-level "Dates" section: dates are set per-flight only.
-    today = datetime.date.today()
-    date_from = today + datetime.timedelta(days=1)
-    date_to = today + datetime.timedelta(days=2)
     io_form.locator("button.flight-add").click()
     flight_row = io_form.locator("div[formarrayname='flights'] div.flight-row").first
     expect(flight_row).to_be_visible()
@@ -246,7 +243,7 @@ def test_amazon_insertion_orders(page: Page):
     return order_name
 
 
-def test_amazon_line_items(page: Page):
+def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: datetime.date):
     """TEST 29-39: Step 3 Line Items — navigate and fill the Ad Group form."""
     # Navigate: Next in footer → "Confirm & continue" confirmation dialog
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
@@ -328,9 +325,6 @@ def test_amazon_line_items(page: Page):
     # TEST 39: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog.
     # Set last (after Budget): adding a budget row can trigger a debounced
     # re-render that wipes an earlier date selection, so verify + retry once.
-    today = datetime.date.today()
-    date_from = today + datetime.timedelta(days=1)
-    date_to = today + datetime.timedelta(days=2)
     dates_section = ad_form.locator("section").filter(
         has=page.locator("span.text-base.font-bold", has_text="Dates")
     )
@@ -421,11 +415,16 @@ def main():
         page = context.new_page()
 
         try:
-            test_landing(page)                          # TEST 1-3
-            campaign_name = test_amazon_general_info(page)  # TEST 4-16
-            test_amazon_insertion_orders(page)              # TEST 17-28
-            test_amazon_line_items(page)                    # TEST 29-39
-            test_amazon_recap(page)                         # TEST 40-41
+            # Compute shared dates once so IO flights and Line Items always match.
+            today = datetime.date.today()
+            date_from = today + datetime.timedelta(days=1)
+            date_to = today + datetime.timedelta(days=2)
+
+            test_landing(page)                                        # TEST 1-3
+            campaign_name = test_amazon_general_info(page)            # TEST 4-16
+            test_amazon_insertion_orders(page, date_from, date_to)    # TEST 17-28
+            test_amazon_line_items(page, date_from, date_to)          # TEST 29-39
+            test_amazon_recap(page)                                   # TEST 40-41
 
             print("\nALL TESTS PASSED ✅")
             page.wait_for_timeout(3000)
