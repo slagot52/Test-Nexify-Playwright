@@ -419,7 +419,7 @@ def test_insertion_orders(page: Page):
     # TEST 35: KPI Type = CPM
     # The site renamed this option from plain "CPM" to the full descriptive
     # label "Cost per thousand impressions (CPM)" (exact match is required).
-    select_mat_option(page, "kpiType", "Cost per thousand impressions (CPM)")
+    select_mat_option(page, "kpiType", "Impression click through rate (CTR)")
     ok(35, "KPI Type = 'CPM' selected and verified")
 
     # TEST 36: KPI Target = 1
