@@ -251,7 +251,7 @@ def test_amazon_insertion_orders(page: Page, date_from: datetime.date, date_to: 
 
 
 def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: datetime.date):
-    """TEST 30-40: Step 3 Line Items — navigate and fill the Ad Group form."""
+    """TEST 30-45: Step 3 Line Items — navigate and fill the Ad Group form."""
     # Navigate: Next in footer → "Confirm & continue" confirmation dialog
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
     confirm_dlg = page.locator("mat-dialog-container")
@@ -278,23 +278,43 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     fill_and_verify(ad_form, "maxAverageBid", "1")
     ok(33, "Max Average Bid = 1")
 
-    # TEST 34: Delivery Profile = ASAP
+    # TEST 34: Bid Strategy = Use Campaign Strategy
+    select_mat_option(page, "bidStrategy", "Use Campaign Strategy")
+    ok(34, "Bid Strategy = 'Use Campaign Strategy' selected")
+
+    # TEST 35: Budget Allocation = Auto
+    select_mat_option(page, "budgetAllocationType", "Auto")
+    ok(35, "Budget Allocation = 'Auto' selected")
+
+    # TEST 36: Daily Min Spend = 4.75
+    fill_and_verify(ad_form, "dailyMinSpend", "4.75")
+    ok(36, "Daily Min Spend = 4.75")
+
+    # TEST 37: KPI = Clicks
+    select_mat_option(page, "kpi", "Clicks")
+    ok(37, "KPI = 'Clicks' selected")
+
+    # TEST 38: Delivery Profile = ASAP
     select_mat_option(page, "deliveryProfile", "ASAP")
-    ok(34, "Delivery Profile = 'ASAP' selected and verified")
+    ok(38, "Delivery Profile = 'ASAP' selected and verified")
 
-    # TEST 35: Viewability Tier = Greater than 40 percent
+    # TEST 39: Viewability Tier = Greater than 40 percent
     select_mat_option(page, "viewabilityTier", "Greater than 40 percent")
-    ok(35, "Viewability Tier = 'Greater than 40 percent' selected and verified")
+    ok(39, "Viewability Tier = 'Greater than 40 percent' selected and verified")
 
-    # TEST 36: Inventory Type = Streaming TV
+    # TEST 40: Video Completion Tier = Greater than 10%
+    select_mat_option(page, "videoCompletionTier", "Greater than 10%")
+    ok(40, "Video Completion Tier = 'Greater than 10%' selected and verified")
+
+    # TEST 41: Inventory Type = Streaming TV
     select_mat_option(page, "inventoryType", "Streaming TV")
-    ok(36, "Inventory Type = 'Streaming TV' selected and verified")
+    ok(41, "Inventory Type = 'Streaming TV' selected and verified")
 
-    # TEST 37: Creative Rotation = Random
+    # TEST 42: Creative Rotation = Random
     select_mat_option(page, "creativeRotationType", "Random")
-    ok(37, "Creative Rotation = 'Random' selected and verified")
+    ok(42, "Creative Rotation = 'Random' selected and verified")
 
-    # TEST 38: Advertised product categories = "Black History Month" via the
+    # TEST 43: Advertised product categories = "Black History Month" via the
     # "Manage" dialog (a plain text input does not exist for this field).
     categories_section = ad_form.locator("section").filter(
         has=page.locator("span.text-sm.font-semibold", has_text="Advertised product categories")
@@ -314,12 +334,12 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     cat_dialog.locator("button", has_text="Apply").click()
     expect(cat_dialog).not_to_be_visible()
     expect(categories_section.locator("text=No categories selected.")).not_to_be_visible()
-    ok(38, "Advertised product categories = 'Black History Month' selected via Manage dialog")
+    ok(43, "Advertised product categories = 'Black History Month' selected via Manage dialog")
     # Let any debounced re-render triggered by the categories dialog settle
     # before touching Budget/Dates below (same pattern seen elsewhere in this app).
     page.wait_for_timeout(1500)
 
-    # TEST 39: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
+    # TEST 44: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
     budgets_section = ad_form.locator("section").filter(
         has=page.locator("span.text-base.font-bold", has_text="Budgets")
     )
@@ -327,9 +347,9 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     budget_input = budgets_section.locator("input[formcontrolname='budgetValue']")
     expect(budget_input).to_be_visible(timeout=10000)
     fill_and_verify(budgets_section, "budgetValue", "1")
-    ok(39, "Ad Group Budget = 1 (EUR, Lifetime)")
+    ok(44, "Ad Group Budget = 1 (EUR, Lifetime)")
 
-    # TEST 40: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog.
+    # TEST 45: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog.
     # Set last (after Budget): adding a budget row can trigger a debounced
     # re-render that wipes an earlier date selection, so verify + retry once.
     dates_section = ad_form.locator("section").filter(
@@ -342,7 +362,7 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
         if start_date_input.input_value().strip():
             break
     expect(start_date_input).not_to_have_value("")
-    ok(40, f"Ad Group dates set: {date_from} → {date_to}")
+    ok(45, f"Ad Group dates set: {date_from} → {date_to}")
 
     # Persistence guard: wait for any trailing debounced re-render to settle,
     # then re-verify Budget and Dates weren't silently wiped afterward (the
@@ -360,7 +380,7 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
 
 
 def test_amazon_recap(page: Page):
-    """TEST 41-42: Recap step, Start campaign (user-gated)."""
+    """TEST 46-47: Recap step, Start campaign (user-gated)."""
     # Navigate: Next in footer → "Confirm & continue" confirmation dialog (best-effort)
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
     confirm_dlg = page.locator("mat-dialog-container")
@@ -370,7 +390,7 @@ def test_amazon_recap(page: Page):
         expect(confirm_dlg).not_to_be_visible()
     except AssertionError:
         pass
-    ok(41, "navigated to the Recap step")
+    ok(46, "navigated to the Recap step")
 
     # TEST 41: click "Start campaign".
     # WARNING: this is a consequential action (it actually LAUNCHES the Amazon
@@ -397,9 +417,9 @@ def test_amazon_recap(page: Page):
                 "Campaign validation failed at Start campaign:\n- "
                 + "\n- ".join(m.strip() for m in messages)
             )
-        ok(42, "'Start campaign' performed, no validation-errors dialog shown")
+        ok(47, "'Start campaign' performed, no validation-errors dialog shown")
     else:
-        print("TEST 42 SKIPPED -> click on 'Start campaign' cancelled by the user")
+        print("TEST 47 SKIPPED -> click on 'Start campaign' cancelled by the user")
 
 
 # --------------------------------------------------------------------------
