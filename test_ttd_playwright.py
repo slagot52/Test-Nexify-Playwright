@@ -494,9 +494,14 @@ def test_ttd_recap(page: Page, campaign_name: str):
         expect(campaign_row).to_be_visible()
         ok(44, f"campaign '{campaign_name}' found in the campaigns table")
 
-        # TEST 45: that campaign is in 'SUBMITTED' status (Status is column 9).
-        expect(campaign_row.locator("td[aria-colindex='9']")).to_contain_text("SUBMITTED")
-        ok(45, f"campaign '{campaign_name}' is in 'SUBMITTED' status")
+        # TEST 45: campaign is in 'SUBMITTED' or 'COMPLETED' status (Status is column 9).
+        # COMPLETED is the next valid state after SUBMITTED, so both are acceptable.
+        status_cell = campaign_row.locator("td[aria-colindex='9']")
+        status_text = status_cell.inner_text().strip()
+        assert status_text in ("SUBMITTED", "COMPLETED"), (
+            f"Unexpected campaign status: '{status_text}'"
+        )
+        ok(45, f"campaign '{campaign_name}' is in '{status_text}' status")
     else:
         print("TEST 42 SKIPPED -> click on 'Start campaign' cancelled by the user")
 
