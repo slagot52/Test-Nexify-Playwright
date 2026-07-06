@@ -211,8 +211,15 @@ def test_amazon_insertion_orders(page: Page, date_from: datetime.date, date_to: 
     page.wait_for_timeout(1500)
     ok(24, "Optimization Strategy = 'Manage budget manually' (MANUAL) selected")
 
-    # TEST 25-27: Flight row — with MANUAL budget allocation there is no
-    # IO-level "Dates" section: dates are set per-flight only.
+    # TEST 25: IO-level Start/End Date (readonly inputs opened via edit_calendar button).
+    # These fields use button[matsuffix] (not button.dt-suffix used by flight rows).
+    io_date_btn = io_form.locator("button[matsuffix]").first
+    expect(io_date_btn).to_be_visible(timeout=5000)
+    io_date_btn.click()
+    _set_date_range_dialog(page, date_from, date_to)
+    ok(25, f"IO-level dates set: {date_from} → {date_to}")
+
+    # TEST 26-28: Flight row — dates are also required per-flight.
     io_form.locator("button.flight-add").click()
     flight_row = io_form.locator("div[formarrayname='flights'] div.flight-row").first
     expect(flight_row).to_be_visible()
@@ -221,21 +228,21 @@ def test_amazon_insertion_orders(page: Page, date_from: datetime.date, date_to: 
     flight_date_btn.scroll_into_view_if_needed()
     flight_date_btn.click()
     _set_date_range_dialog(page, date_from, date_to)
-    ok(25, f"Flight dates set: {date_from} → {date_to}")
+    ok(26, f"Flight dates set: {date_from} → {date_to}")
 
     fill_and_verify(flight_row, "budgetValue", "1")
-    ok(26, "Flight budget = 1")
+    ok(27, "Flight budget = 1")
 
     fill_and_verify(flight_row, "currencyCode", "EUR")
-    ok(27, "Flight currency = EUR")
+    ok(28, "Flight currency = EUR")
 
-    # TEST 28: Unused budget = Do not change flight budgets (NO_ROLLOVER)
+    # TEST 29: Unused budget = Do not change flight budgets (NO_ROLLOVER)
     no_rollover = io_form.locator(
         "input[type='radio'][formcontrolname='flightBudgetRolloverStrategy'][value='NO_ROLLOVER']"
     )
     no_rollover.click()
     expect(no_rollover).to_be_checked()
-    ok(28, "Unused budget = 'Do not change flight budgets' (NO_ROLLOVER) selected")
+    ok(29, "Unused budget = 'Do not change flight budgets' (NO_ROLLOVER) selected")
 
     # Budget Cap, Agency Fees, Off-Amazon Conversions, Frequency Caps:
     # left at defaults — not required for initial campaign creation.
@@ -244,7 +251,7 @@ def test_amazon_insertion_orders(page: Page, date_from: datetime.date, date_to: 
 
 
 def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: datetime.date):
-    """TEST 29-39: Step 3 Line Items — navigate and fill the Ad Group form."""
+    """TEST 30-40: Step 3 Line Items — navigate and fill the Ad Group form."""
     # Navigate: Next in footer → "Confirm & continue" confirmation dialog
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
     confirm_dlg = page.locator("mat-dialog-container")
@@ -256,38 +263,38 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     expect(li).to_be_visible(timeout=10000)
     ad_form = li.locator("app-amazon-ad-groups form")
     expect(ad_form).to_be_visible()
-    ok(29, "navigated to Line Items, Ad Group form visible")
+    ok(30, "navigated to Line Items, Ad Group form visible")
 
-    # TEST 30: Ad Group Name
+    # TEST 31: Ad Group Name
     ad_group_name = f"Test AG Amazon - {int(time.time())}"
     fill_and_verify(ad_form, "name", ad_group_name)
-    ok(30, f"Ad Group Name = '{ad_group_name}'")
+    ok(31, f"Ad Group Name = '{ad_group_name}'")
 
-    # TEST 31: Base Bid = 1
+    # TEST 32: Base Bid = 1
     fill_and_verify(ad_form, "baseBid", "1")
-    ok(31, "Base Bid = 1")
+    ok(32, "Base Bid = 1")
 
-    # TEST 32: Max Average Bid = 1
+    # TEST 33: Max Average Bid = 1
     fill_and_verify(ad_form, "maxAverageBid", "1")
-    ok(32, "Max Average Bid = 1")
+    ok(33, "Max Average Bid = 1")
 
-    # TEST 33: Delivery Profile = ASAP
+    # TEST 34: Delivery Profile = ASAP
     select_mat_option(page, "deliveryProfile", "ASAP")
-    ok(33, "Delivery Profile = 'ASAP' selected and verified")
+    ok(34, "Delivery Profile = 'ASAP' selected and verified")
 
-    # TEST 34: Viewability Tier = Greater than 40 percent
+    # TEST 35: Viewability Tier = Greater than 40 percent
     select_mat_option(page, "viewabilityTier", "Greater than 40 percent")
-    ok(34, "Viewability Tier = 'Greater than 40 percent' selected and verified")
+    ok(35, "Viewability Tier = 'Greater than 40 percent' selected and verified")
 
-    # TEST 35: Inventory Type = Streaming TV
+    # TEST 36: Inventory Type = Streaming TV
     select_mat_option(page, "inventoryType", "Streaming TV")
-    ok(35, "Inventory Type = 'Streaming TV' selected and verified")
+    ok(36, "Inventory Type = 'Streaming TV' selected and verified")
 
-    # TEST 36: Creative Rotation = Random
+    # TEST 37: Creative Rotation = Random
     select_mat_option(page, "creativeRotationType", "Random")
-    ok(36, "Creative Rotation = 'Random' selected and verified")
+    ok(37, "Creative Rotation = 'Random' selected and verified")
 
-    # TEST 37: Advertised product categories = "Black History Month" via the
+    # TEST 38: Advertised product categories = "Black History Month" via the
     # "Manage" dialog (a plain text input does not exist for this field).
     categories_section = ad_form.locator("section").filter(
         has=page.locator("span.text-sm.font-semibold", has_text="Advertised product categories")
@@ -307,12 +314,12 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     cat_dialog.locator("button", has_text="Apply").click()
     expect(cat_dialog).not_to_be_visible()
     expect(categories_section.locator("text=No categories selected.")).not_to_be_visible()
-    ok(37, "Advertised product categories = 'Black History Month' selected via Manage dialog")
+    ok(38, "Advertised product categories = 'Black History Month' selected via Manage dialog")
     # Let any debounced re-render triggered by the categories dialog settle
     # before touching Budget/Dates below (same pattern seen elsewhere in this app).
     page.wait_for_timeout(1500)
 
-    # TEST 38: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
+    # TEST 39: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
     budgets_section = ad_form.locator("section").filter(
         has=page.locator("span.text-base.font-bold", has_text="Budgets")
     )
@@ -320,9 +327,9 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     budget_input = budgets_section.locator("input[formcontrolname='budgetValue']")
     expect(budget_input).to_be_visible(timeout=10000)
     fill_and_verify(budgets_section, "budgetValue", "1")
-    ok(38, "Ad Group Budget = 1 (EUR, Lifetime)")
+    ok(39, "Ad Group Budget = 1 (EUR, Lifetime)")
 
-    # TEST 39: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog.
+    # TEST 40: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog.
     # Set last (after Budget): adding a budget row can trigger a debounced
     # re-render that wipes an earlier date selection, so verify + retry once.
     dates_section = ad_form.locator("section").filter(
@@ -335,7 +342,7 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
         if start_date_input.input_value().strip():
             break
     expect(start_date_input).not_to_have_value("")
-    ok(39, f"Ad Group dates set: {date_from} → {date_to}")
+    ok(40, f"Ad Group dates set: {date_from} → {date_to}")
 
     # Persistence guard: wait for any trailing debounced re-render to settle,
     # then re-verify Budget and Dates weren't silently wiped afterward (the
@@ -353,7 +360,7 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
 
 
 def test_amazon_recap(page: Page):
-    """TEST 40-41: Recap step, Start campaign (user-gated)."""
+    """TEST 41-42: Recap step, Start campaign (user-gated)."""
     # Navigate: Next in footer → "Confirm & continue" confirmation dialog (best-effort)
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
     confirm_dlg = page.locator("mat-dialog-container")
@@ -363,7 +370,7 @@ def test_amazon_recap(page: Page):
         expect(confirm_dlg).not_to_be_visible()
     except AssertionError:
         pass
-    ok(40, "navigated to the Recap step")
+    ok(41, "navigated to the Recap step")
 
     # TEST 41: click "Start campaign".
     # WARNING: this is a consequential action (it actually LAUNCHES the Amazon
@@ -390,9 +397,9 @@ def test_amazon_recap(page: Page):
                 "Campaign validation failed at Start campaign:\n- "
                 + "\n- ".join(m.strip() for m in messages)
             )
-        ok(41, "'Start campaign' performed, no validation-errors dialog shown")
+        ok(42, "'Start campaign' performed, no validation-errors dialog shown")
     else:
-        print("TEST 41 SKIPPED -> click on 'Start campaign' cancelled by the user")
+        print("TEST 42 SKIPPED -> click on 'Start campaign' cancelled by the user")
 
 
 # --------------------------------------------------------------------------
