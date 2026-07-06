@@ -575,9 +575,21 @@ def test_line_items_form(page: Page):
     expect(bid_select).to_be_visible()
     bid_select.scroll_into_view_if_needed()
     bid_select_id = bid_select.get_attribute("id")
-    bid_select.click(force=True)
-    expect(bid_select).to_have_attribute("aria-expanded", "true")
-    bid_panel = page.locator(f"#{bid_select_id}-panel")
+    for attempt in range(4):
+        if attempt == 0:
+            bid_select.click(force=True)
+        else:
+            bid_select.focus()
+            bid_select.press("Enter")
+        try:
+            expect(bid_select).to_have_attribute("aria-expanded", "true", timeout=2000)
+            break
+        except AssertionError:
+            page.keyboard.press("Escape")
+            continue
+    else:
+        raise AssertionError("Could not open bid strategy panel for regression check")
+    bid_panel = page.locator(f"#{bid_select_id}-panel").first
     expect(bid_panel).to_be_visible()
     expect(bid_panel.get_by_role("option", name="Maximize Reach", exact=True)).to_have_count(0)
     page.keyboard.press("Escape")
