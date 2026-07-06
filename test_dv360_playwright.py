@@ -338,12 +338,12 @@ def test_global_setup(page: Page):
         return "mat-mdc-select-empty" in (perf_select.get_attribute("class") or "")
 
     for _ in range(3):
-        select_mat_option(page, "performanceGoalType", "CPM")
+        select_mat_option(page, "performanceGoalType", "CTR")
         page.wait_for_timeout(1500)  # let a possible debounced reset fire
         if not _perf_empty():
             break
     assert not _perf_empty(), "performanceGoalType stays empty after the attempts"
-    ok(25, "Target's Objective Type = 'CPM' selected, populated and stable")
+    ok(25, "Target's Objective Type = 'CTR' selected, populated and stable")
 
     fill_and_verify(gs_form, "performanceGoalAmountMicros", "1")
     ok(26, "Target's Objective Value = 1 entered and verified")
