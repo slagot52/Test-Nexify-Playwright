@@ -79,7 +79,10 @@ def select_mat_option(page: Page, form_control_name: str, option_name: str):
     else:
         raise AssertionError(f"Could not open the mat-select '{form_control_name}'")
 
-    panel = page.locator(f"#{select_id}-panel")
+    # Use .first to handle the rare case where Angular leaves a ghost
+    # (invisible) panel in the DOM alongside the new visible one — both share
+    # the same generated id, causing a strict-mode violation.
+    panel = page.locator(f"#{select_id}-panel").first
     expect(panel).to_be_visible()
 
     option = panel.get_by_role("option", name=option_name, exact=True)
@@ -110,7 +113,10 @@ def select_all_multi(page: Page, form_control_name: str, expected_text: str):
     select_id = select.get_attribute("id")
     select.click(force=True)
 
-    panel = page.locator(f"#{select_id}-panel")
+    # Use .first to handle the rare case where Angular leaves a ghost
+    # (invisible) panel in the DOM alongside the new visible one — both share
+    # the same generated id, causing a strict-mode violation.
+    panel = page.locator(f"#{select_id}-panel").first
     expect(panel).to_be_visible()
     select_all_opt = panel.locator("mat-option[matselectalloption]")
     unselected = panel.locator("mat-option:not([matselectalloption])[aria-selected='false']")
