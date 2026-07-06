@@ -285,11 +285,11 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     ok(34, "Bid Strategy = 'Use Campaign Strategy' selected")
 
     # TEST 35: Budget Allocation = Auto
-    select_mat_option(page, "budgetAllocationType", "Auto")
+    select_mat_option(page, "budgetAllocation", "Auto")
     ok(35, "Budget Allocation = 'Auto' selected")
 
     # TEST 36: Daily Min Spend = 4.75
-    fill_and_verify(ad_form, "dailyMinSpend", "4.75")
+    fill_and_verify(ad_form, "dailyMinSpendValue", "4.75")
     ok(36, "Daily Min Spend = 4.75")
 
     # TEST 37: KPI = Clicks
