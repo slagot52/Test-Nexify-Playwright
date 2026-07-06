@@ -345,7 +345,19 @@ def test_global_setup(page: Page):
     assert not _perf_empty(), "performanceGoalType stays empty after the attempts"
     ok(25, "Target's Objective Type = 'CTR' selected, populated and stable")
 
-    fill_and_verify(gs_form, "performanceGoalPercentageMicros", "1")
+    # type="number" inputs need a Tab/blur to commit the value to Angular's
+    # reactive form model; without it the server receives 0 or empty.
+    perf_val = gs_form.locator("input[formcontrolname='performanceGoalPercentageMicros']")
+    expect(perf_val).to_be_visible()
+    perf_val.fill("1")
+    perf_val.press("Tab")
+    page.wait_for_timeout(500)
+    if perf_val.input_value().strip() in ("", "0"):
+        perf_val.fill("1")
+        perf_val.press("Tab")
+    assert perf_val.input_value().strip() not in ("", "0"), (
+        "Target's Objective Value is empty/zero after fill"
+    )
     ok(26, "Target's Objective Value = 1 entered and verified")
 
 
