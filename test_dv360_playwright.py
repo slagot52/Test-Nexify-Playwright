@@ -398,7 +398,8 @@ def test_insertion_orders(page: Page):
     dt = io_form.locator("input[formcontrolname='dateTo']")
     df.fill(io_date_from.strftime(DATE_FMT))
     dt.fill(io_date_to.strftime(DATE_FMT))
-    dt.press("Enter")
+    dt.press("Tab")
+    page.wait_for_timeout(500)
     ok(29, f"Date range From={io_date_from} To={io_date_to}")
 
     # TEST 30: Purchase Order = random alphanumeric text, max 8 characters.
