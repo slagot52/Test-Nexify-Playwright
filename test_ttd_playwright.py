@@ -300,7 +300,7 @@ def test_ttd_campaign_channels(page: Page):
     conv_section = cc_form.locator("section.frequency-section").filter(
         has=page.get_by_text("Conversion reporting", exact=True)
     )
-    conv_section.locator("button", has_text="Configure").click()
+    conv_section.locator("button[mat-stroked-button]", has_text="Configure").click()
     conv_dialog = page.get_by_role("dialog").filter(has_text="Configure campaign reporting and attribution")
     expect(conv_dialog).to_be_visible()
     conv_dialog.locator("button", has_text="Add conversion data source").click()
