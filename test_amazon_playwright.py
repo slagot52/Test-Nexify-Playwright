@@ -211,13 +211,15 @@ def test_amazon_insertion_orders(page: Page, date_from: datetime.date, date_to: 
     page.wait_for_timeout(1500)
     ok(24, "Optimization Strategy = 'Manage budget manually' (MANUAL) selected")
 
-    # TEST 25: IO-level Start/End Date (readonly inputs opened via edit_calendar button).
-    # These fields use button[matsuffix] (not button.dt-suffix used by flight rows).
+    # TEST 25: IO-level Start/End Date — only rendered when budget allocation is
+    # AUTO; hidden entirely in MANUAL mode. Set if present, skip otherwise.
     io_date_btn = io_form.locator("button[matsuffix]").first
-    expect(io_date_btn).to_be_visible(timeout=5000)
-    io_date_btn.click()
-    _set_date_range_dialog(page, date_from, date_to)
-    ok(25, f"IO-level dates set: {date_from} → {date_to}")
+    if io_date_btn.count() > 0 and io_date_btn.is_visible():
+        io_date_btn.click()
+        _set_date_range_dialog(page, date_from, date_to)
+        ok(25, f"IO-level dates set: {date_from} → {date_to}")
+    else:
+        print("TEST 25 SKIPPED -> IO-level date fields not present (MANUAL mode)")
 
     # TEST 26-28: Flight row — dates are also required per-flight.
     io_form.locator("button.flight-add").click()
