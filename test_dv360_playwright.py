@@ -345,7 +345,7 @@ def test_global_setup(page: Page):
     assert not _perf_empty(), "performanceGoalType stays empty after the attempts"
     ok(25, "Target's Objective Type = 'CTR' selected, populated and stable")
 
-    fill_and_verify(gs_form, "performanceGoalAmountMicros", "1")
+    fill_and_verify(gs_form, "performanceGoalPercentageMicros", "1")
     ok(26, "Target's Objective Value = 1 entered and verified")
 
 
