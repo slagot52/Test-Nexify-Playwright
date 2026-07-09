@@ -480,9 +480,10 @@ def test_audience_targeting(page: Page, li_form, ref: dict):
     small (~7-10 item) pages - not tractable to match by id via the UI.
     The user will provide display names directly for that sub-type later.
 
-    Both remaining sub-types match 1:1 against live data (no drift):
-    all 6 custom lists and the 1 Google audience from the JSON exist and
-    are found on the dialog's first page (no pagination needed). Selections
+    Both remaining sub-types match 1:1 against live data (no drift). Each
+    id is located via the dialog's search box (server-side 'contains'
+    filter) rather than paging through the client-side grid pager - faster
+    and avoids relying on client pagination staying in sync. Selections
     made across a type switch are preserved by the dialog and applied
     together in one 'Apply' click.
     """
@@ -514,29 +515,38 @@ def test_audience_targeting(page: Page, li_form, ref: dict):
             waited += 200
         return len(captured) > baseline
 
-    def check_row_on_current_page(name: str) -> bool:
-        row = grid.locator("tr.dx-data-row").filter(has=page.get_by_text(name, exact=True))
-        if row.count() == 0:
-            return False
-        row.locator("div.dx-select-checkbox").click()
-        return True
+    def search_term_candidates(name: str):
+        # The free-text search filters server-side by 'contains' against the
+        # audience's raw name, which fails for category-prefixed names like
+        # '[In-Market] : Televisions' (the brackets/colon prefix breaks the
+        # match). Fall back to just the part after the last ':' in that case.
+        candidates = [name]
+        if ":" in name:
+            tail = name.split(":")[-1].strip()
+            if tail and tail not in candidates:
+                candidates.append(tail)
+        return candidates
 
-    def find_and_check(name: str):
-        # The grid paginates client-side once many items load, so a target
-        # row may not be on the currently visible page. The dialog's free-text
-        # search filters server-side by 'contains', but is unreliable for some
-        # names (e.g. brackets), so we page through the client-side pager
-        # instead, which works regardless of the name's characters.
-        if check_row_on_current_page(name):
+    def find_and_check(_id: str, name: str, captured: list):
+        for term in search_term_candidates(name):
+            baseline = len(captured)
+            search_box.fill(term)
+            search_box.press("Enter")
+            wait_for_response(captured, baseline)
+            if not captured:
+                continue
+            results = captured[-1].json()["results"]
+            # Match by (index, id) rather than by name text: names aren't
+            # guaranteed unique, so select the row by its position in the
+            # search response instead.
+            idx = next((i for i, item in enumerate(results) if item["id"] == _id), None)
+            if idx is None:
+                continue
+            row = grid.locator("tr.dx-data-row").nth(idx)
+            expect(row).to_be_visible()
+            row.locator("div.dx-select-checkbox").click()
             return
-        pager = dialog.locator("div.dx-pager")
-        page_count = pager.locator("div.dx-page").count()
-        for pnum in range(1, page_count + 1):
-            pager.locator(f"div.dx-page[aria-label='Page {pnum}']").click()
-            page.wait_for_timeout(400)
-            if check_row_on_current_page(name):
-                return
-        raise AssertionError(f"Could not find row for '{name}' on any grid page")
+        raise AssertionError(f"Could not find '{name}' (id {_id}) via search, tried: {search_term_candidates(name)}")
 
     def select_audience_type_and_pick(type_label: str, ids: list[str]):
         captured = []
@@ -558,7 +568,7 @@ def test_audience_targeting(page: Page, li_form, ref: dict):
         )
 
         for _id, name in matched:
-            find_and_check(name)
+            find_and_check(_id, name, captured)
         return matched
 
     matched_custom = select_audience_type_and_pick("Custom lists", custom_ids)
@@ -890,6 +900,47 @@ def test_day_time_targeting(page: Page, li_form):
 
 
 # --------------------------------------------------------------------------
+# Finish: Next -> Recap -> Start campaign
+# --------------------------------------------------------------------------
+def test_finish_and_submit(page: Page):
+    """
+    TEST 92-93: click 'Next' from Line Items to reach Recap, then attempt
+    'Start campaign'. Mirrors the same safety gate as the base suite
+    (test_dv360_playwright.py TEST 61): this ACTUALLY LAUNCHES a real
+    campaign on Samsung's live DV360 account, so the click only happens if
+    the terminal confirmation is explicitly typed 'yes'.
+    """
+    footer = page.locator("div.step-footer")
+    footer.locator("button.mdc-button", has_text="Next").click()
+    ok(92, "click on 'Next' in the footer performed (Line Items -> Recap)")
+
+    start_btn = page.locator("button.mdc-button", has_text="Start campaign")
+    expect(start_btn).to_be_visible(timeout=15000)
+    answer = input(
+        "\n>>> 'Start campaign' ACTUALLY LAUNCHES the campaign on Samsung's live "
+        "DV360 account. Type 'yes' to confirm the click (anything else cancels): "
+    ).strip().lower()
+    if answer == "yes":
+        start_btn.click()
+        errors_dialog = page.locator("app-campaign-activation-errors-dialog")
+        appeared = False
+        try:
+            expect(errors_dialog).to_be_visible(timeout=8000)
+            appeared = True
+        except AssertionError:
+            appeared = False
+        if appeared:
+            messages = errors_dialog.locator("p.text-red-700").all_inner_texts()
+            raise AssertionError(
+                "Campaign validation failed at Start campaign:\n- "
+                + "\n- ".join(m.strip() for m in messages)
+            )
+        ok(93, "'Start campaign' performed, no validation-errors dialog shown")
+    else:
+        print("TEST 93 SKIPPED -> click on 'Start campaign' cancelled by the user")
+
+
+# --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
 def main():
@@ -924,8 +975,9 @@ def main():
             test_keyword_targeting(page, li_form, ref)
             test_category_targeting(page, li_form, ref)
             test_day_time_targeting(page, li_form)
+            test_finish_and_submit(page)
 
-            print("\nALL TESTS PASSED (Channels + Negative Keyword List + Audiences + Geo Regions + URLs + Keywords + Categories + Day & Time targeting) ✅")
+            print("\nALL TESTS PASSED ✅")
             page.wait_for_timeout(3000)
 
         except AssertionError as error:
