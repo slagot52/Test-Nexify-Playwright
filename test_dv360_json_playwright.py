@@ -57,6 +57,47 @@ def load_reference() -> dict:
         return json.load(f)
 
 
+def select_mat_option_on(page: Page, select, option_name: str):
+    """
+    Same mechanics as select_mat_option() in test_dv360_playwright.py, but
+    takes an already-resolved mat-select locator instead of a
+    formcontrolname - needed for the day-time-selector rows, whose
+    mat-selects are driven by (selectionChange) handlers, not reactive
+    form controls.
+    """
+    expect(select).to_be_visible()
+    select.scroll_into_view_if_needed()
+    select_id = select.get_attribute("id")
+
+    for attempt in range(4):
+        if attempt == 0:
+            select.click(force=True)
+        else:
+            select.focus()
+            select.press("Enter")
+        try:
+            expect(select).to_have_attribute("aria-expanded", "true", timeout=2000)
+            break
+        except AssertionError:
+            page.keyboard.press("Escape")
+            continue
+    else:
+        raise AssertionError(f"Could not open the mat-select '{option_name}'")
+
+    panel = page.locator(f"#{select_id}-panel").first
+    expect(panel).to_be_visible()
+    option = panel.get_by_role("option", name=option_name, exact=True)
+    expect(option).to_be_visible()
+    option.click()
+
+    try:
+        expect(select).to_contain_text(option_name, timeout=3000)
+    except AssertionError:
+        if select.get_attribute("aria-expanded") == "true":
+            option.click()
+        expect(select).to_contain_text(option_name)
+
+
 def unique_targeting_values(ref: dict, targeting_type: str, detail_key: str, id_field: str):
     """
     Collect the DISTINCT values for a given targetingType across every line
@@ -538,6 +579,317 @@ def test_audience_targeting(page: Page, li_form, ref: dict):
 
 
 # --------------------------------------------------------------------------
+# Targeting: Geo Regions (included / excluded)
+# --------------------------------------------------------------------------
+def test_geo_region_targeting(page: Page, li_form, ref: dict):
+    """
+    TEST 77-80: 'Included/Excluded geo regions' section.
+
+    Geo regions are DV360's global taxonomy (targetingTypes().targetingOptions()
+    .search, not advertiser-scoped), so all 7 distinct ids in the reference
+    JSON are expected to exist regardless of advertiser - all 7 are selected
+    (per user instruction), split 3 excluded / 4 included by the JSON's
+    'negative' flag.
+
+    Unlike Channels/Negative Keyword List, the geo-region picker does NOT
+    auto-load on open: it only fetches once you type a search term and
+    submit (DV360's geo search requires a query). So each id is searched by
+    its JSON displayName, one at a time, before being selected.
+    """
+    pairs = unique_targeting_values(ref, "TARGETING_TYPE_GEO_REGION", "geoRegionDetails", "targetingOptionId")
+    excluded_ids = [gid for gid, negative in pairs if negative]
+    included_ids = [gid for gid, negative in pairs if not negative]
+    assert excluded_ids and included_ids, "Expected both included and excluded geo regions in the reference JSON"
+
+    json_name_by_id = {}
+    for io in ref["insertionOrders"]:
+        for li in io.get("lineItems", []):
+            for t in li.get("targetingOptions", []):
+                if t.get("targetingType") == "TARGETING_TYPE_GEO_REGION":
+                    d = t["geoRegionDetails"]
+                    json_name_by_id.setdefault(d["targetingOptionId"], d["displayName"])
+
+    def add_geo(button_name: str, dialog_title: str, ids: list[str]):
+        section = li_form.locator("div.border.rounded-xl.p-4").filter(
+            has=page.get_by_role("button", name=button_name)
+        )
+        add_btn = section.get_by_role("button", name=button_name)
+        add_btn.scroll_into_view_if_needed()
+        expect(add_btn).to_be_visible()
+        add_btn.click()
+
+        dialog = page.locator("mat-dialog-container")
+        expect(dialog).to_be_visible()
+        expect(dialog.locator("h2[mat-dialog-title]")).to_contain_text(dialog_title)
+
+        grid = dialog.locator("dx-data-grid")
+        search_box = dialog.get_by_placeholder("Write to filter")
+
+        matched = []
+        for gid in ids:
+            query = json_name_by_id[gid]
+            captured = []
+            page.on(
+                "response",
+                lambda r: captured.append(r) if "/dsp/dv360/regions" in r.url.lower() else None,
+            )
+            search_box.fill(query)
+            search_box.press("Enter")
+            for _ in range(20):
+                if captured:
+                    break
+                page.wait_for_timeout(250)
+            assert captured, f"Did not observe the geo region API response for query '{query}'"
+            results = captured[-1].json()["results"]
+            # Match by (index, name) rather than a name->id dict: geo names can
+            # collide (e.g. two different ids both named "Santa Cruz de
+            # Tenerife, Canary Islands, Spain"), so select the row by its
+            # position in the API response instead of by text alone.
+            idx = next((i for i, item in enumerate(results) if item["id"] == gid), None)
+            assert idx is not None, (
+                f"JSON geo id {gid} ('{query}') not found in live search results: {results}"
+            )
+            name = results[idx]["name"]
+            row = grid.locator("tr.dx-data-row").nth(idx)
+            expect(row).to_be_visible()
+            expect(row).to_contain_text(name)
+            row.locator("div.dx-select-checkbox").click()
+            matched.append((gid, name))
+
+        dialog.get_by_role("button", name="Apply").click()
+        expect(dialog).not_to_be_visible()
+        return matched, section
+
+    matched_excl, excl_section = add_geo("Add excluded geo", "Select excluded geo regions", excluded_ids)
+    ok(77, f"'Add excluded geo' dialog driven, selected {len(matched_excl)}: {[n for _, n in matched_excl]}")
+
+    for gid, name in matched_excl:
+        # Some geo names are substrings of others (e.g. "Santa Cruz de
+        # Tenerife..." vs "Province of Santa Cruz de Tenerife..."), so
+        # match on name+id together, not name alone.
+        expect(
+            excl_section.get_by_text(re.compile(rf"{re.escape(name)} \({gid}\)"))
+        ).to_be_visible()
+    ok(78, f"'Excluded geo regions' panel now shows: {[n for _, n in matched_excl]}")
+
+    matched_incl, incl_section = add_geo("Add included geo", "Select included geo regions", included_ids)
+    ok(79, f"'Add included geo' dialog driven, selected {len(matched_incl)}: {[n for _, n in matched_incl]}")
+
+    for gid, name in matched_incl:
+        expect(
+            incl_section.get_by_text(re.compile(rf"{re.escape(name)} \({gid}\)"))
+        ).to_be_visible()
+    ok(80, f"'Included geo regions' panel now shows: {[n for _, n in matched_incl]}")
+
+
+# --------------------------------------------------------------------------
+# Targeting: URLs (included / excluded)
+# --------------------------------------------------------------------------
+def test_url_targeting(page: Page, li_form, ref: dict):
+    """
+    TEST 81-82: 'Included/Excluded URLs' section.
+
+    Plain comma-separated text fields, no picker dialog and no advertiser
+    scoping - all 3 distinct excluded urls from the JSON are inserted
+    directly. The JSON has zero included urls, so that field is left empty.
+    """
+    pairs = unique_targeting_values(ref, "TARGETING_TYPE_URL", "urlDetails", "url")
+    excluded_urls = [u for u, negative in pairs if negative]
+    included_urls = [u for u, negative in pairs if not negative]
+    assert excluded_urls, "Expected excluded url entries in the reference JSON"
+    assert not included_urls, "Did not expect included url entries in the reference JSON"
+
+    excluded_field = li_form.locator("textarea[formcontrolname='excludedUrlIds']")
+    excluded_field.fill(", ".join(excluded_urls))
+    assert excluded_field.input_value() == ", ".join(excluded_urls)
+    ok(81, f"'Excluded URLs' filled with the JSON's {len(excluded_urls)} url(s): {excluded_urls}")
+
+    included_field = li_form.locator("textarea[formcontrolname='includedUrlIds']")
+    assert included_field.input_value() == "", "'Included URLs' expected to stay empty (no JSON data)"
+    ok(82, "'Included URLs' left empty (no included entries in the reference JSON)")
+
+
+# --------------------------------------------------------------------------
+# Targeting: Keywords (included / excluded)
+# --------------------------------------------------------------------------
+def test_keyword_targeting(page: Page, li_form, ref: dict):
+    """
+    TEST 83-84: 'Included/Exclude Keywords' section.
+
+    Plain comma-separated text fields, same mechanics as URLs. Per user
+    instruction, ALL 225 distinct included keywords are inserted (no
+    picker/lookup involved, so there's no reason to cap it), plus all 5
+    distinct excluded keywords.
+    """
+    pairs = unique_targeting_values(ref, "TARGETING_TYPE_KEYWORD", "keywordDetails", "keyword")
+    included_keywords = [k for k, negative in pairs if not negative]
+    excluded_keywords = [k for k, negative in pairs if negative]
+    assert included_keywords, "Expected included keyword entries in the reference JSON"
+    assert excluded_keywords, "Expected excluded keyword entries in the reference JSON"
+
+    included_field = li_form.locator("textarea[formcontrolname='includedKeywordIds']")
+    included_field.fill(", ".join(included_keywords))
+    assert included_field.input_value() == ", ".join(included_keywords)
+    ok(83, f"'Included Keywords' filled with all {len(included_keywords)} keyword(s) from the JSON")
+
+    excluded_field = li_form.locator("textarea[formcontrolname='excludedKeywordIds']")
+    excluded_field.fill(", ".join(excluded_keywords))
+    assert excluded_field.input_value() == ", ".join(excluded_keywords)
+    ok(84, f"'Exclude Keywords' filled with all {len(excluded_keywords)} keyword(s) from the JSON: {excluded_keywords}")
+
+
+# --------------------------------------------------------------------------
+# Targeting: Categories (included / excluded)
+# --------------------------------------------------------------------------
+def test_category_targeting(page: Page, li_form, ref: dict):
+    """
+    TEST 85-89: 'Categories' section (single 'Manage' dialog, tree UI with
+    Include/Exclude buttons per node - not two separate picker dialogs).
+
+    Categories are DV360 global taxonomy, so no advertiser-drift risk.
+
+    KNOWN NEXIFY LIMITATION: id 54 ('Social Issues & Advocacy') and id 82
+    ('Social Issues & Advocacy/Green Living & Environmental Issues') are
+    ancestor/descendant of each other, and both are excluded in the
+    reference JSON. Nexify's Categories dialog LOCKS (disables) a node's
+    Include/Exclude buttons once an ancestor is already excluded
+    (isLocked() -> hasExcludedAncestor()), so the two can't both be set
+    through this UI even though DV360 itself allows it. Per user
+    instruction, id 54 (the broader parent) is dropped in favor of id 82
+    (the more specific child) - 11 of the JSON's 12 excluded categories
+    are selected, substituting 82 for 54.
+    """
+    pairs = unique_targeting_values(ref, "TARGETING_TYPE_CATEGORY", "categoryDetails", "targetingOptionId")
+    included_ids = [c for c, negative in pairs if not negative]
+    excluded_ids = [c for c, negative in pairs if negative and c != "54"]
+    assert included_ids, "Expected included category entries in the reference JSON"
+    assert excluded_ids, "Expected excluded category entries in the reference JSON"
+
+    name_by_id = {}
+    for io in ref["insertionOrders"]:
+        for li in io.get("lineItems", []):
+            for t in li.get("targetingOptions", []):
+                if t.get("targetingType") == "TARGETING_TYPE_CATEGORY":
+                    d = t["categoryDetails"]
+                    name_by_id.setdefault(d["targetingOptionId"], d["displayName"])
+
+    def depth(cid):
+        return len(name_by_id[cid].strip("/").split("/"))
+
+    included_ids.sort(key=depth)
+    excluded_ids.sort(key=depth)
+
+    manage_btn = li_form.get_by_role("button", name="Manage")
+    manage_btn.scroll_into_view_if_needed()
+    expect(manage_btn).to_be_visible()
+    manage_btn.click()
+
+    dialog = page.locator("div.dialog")
+    expect(dialog).to_be_visible()
+    ok(85, "Categories 'Manage' dialog opened")
+
+    search = dialog.get_by_placeholder("Search categories")
+
+    def set_category(cid: str, action: str):
+        display_name = name_by_id[cid]
+        leaf_query = display_name.rstrip("/").split("/")[-1]
+        target_title = " › ".join(display_name.strip("/").split("/"))
+
+        search.fill(leaf_query)
+        search.press("Enter")
+        page.wait_for_timeout(600)
+
+        target_row = dialog.get_by_title(target_title, exact=True)
+        for _ in range(10):
+            if target_row.count() > 0 and target_row.first.is_visible():
+                break
+            # Only click STILL-COLLAPSED ('chevron_right') toggles. Using
+            # ":visible".first alone always re-matches the topmost node
+            # (constant DOM order regardless of expand state), which just
+            # toggles it open/closed instead of drilling into the child
+            # revealed underneath.
+            toggle = dialog.locator("button[aria-label^='Toggle ']:visible").filter(has_text="chevron_right").first
+            if toggle.count() == 0:
+                break
+            toggle.click()
+            page.wait_for_timeout(300)
+
+        expect(target_row.first).to_be_visible()
+        row_container = target_row.first.locator("xpath=ancestor::div[contains(@class,'row')][1]")
+        row_container.locator(f"button[aria-label='{action}']").click()
+
+    for cid in included_ids:
+        set_category(cid, "Include")
+    ok(86, f"selected {len(included_ids)} categor{'y' if len(included_ids)==1 else 'ies'} to Include: {[name_by_id[c] for c in included_ids]}")
+
+    for cid in excluded_ids:
+        set_category(cid, "Exclude")
+    ok(87, f"selected {len(excluded_ids)} categories to Exclude: {[name_by_id[c] for c in excluded_ids]}")
+
+    dialog.get_by_role("button", name="Apply").click()
+    expect(dialog).not_to_be_visible()
+    ok(88, "'Apply' clicked, Categories dialog closed")
+
+    cat_section = li_form.locator("section", has_text="Categories")
+    for cid in included_ids + excluded_ids:
+        # The panel renders the same breadcrumb ('A › B › C') format used
+        # by the dialog's title attributes, not the JSON's '/A/B/C' format.
+        breadcrumb = " › ".join(name_by_id[cid].strip("/").split("/"))
+        expect(cat_section.get_by_text(breadcrumb, exact=True)).to_be_visible()
+    ok(89, f"Categories panel shows all {len(included_ids) + len(excluded_ids)} selected categories")
+
+
+# --------------------------------------------------------------------------
+# Targeting: Day & Time
+# --------------------------------------------------------------------------
+def test_day_time_targeting(page: Page, li_form):
+    """
+    TEST 90-91: 'Day & time' section (<day-time-selector>, not a reactive
+    form control - each row's 3 mat-selects are driven by (selectionChange)
+    handlers instead of formcontrolname).
+
+    The reference JSON has 43 unique (day, hour range) combos aggregated
+    across ALL 33 line items - not representative of a single line item.
+    Per user instruction, uses the full 7-row schedule from the JSON's
+    smallest individual line item instead (every day of week, 6:00 AM to
+    12:00 AM - line item 'ID~GLL0001D4R_FF~AddToCartAndroid...').
+    """
+    rows_data = [
+        ("Monday", "6:00 AM", "12:00 AM"),
+        ("Tuesday", "6:00 AM", "12:00 AM"),
+        ("Wednesday", "6:00 AM", "12:00 AM"),
+        ("Thursday", "6:00 AM", "12:00 AM"),
+        ("Friday", "6:00 AM", "12:00 AM"),
+        ("Saturday", "6:00 AM", "12:00 AM"),
+        ("Sunday", "6:00 AM", "12:00 AM"),
+    ]
+
+    selector = li_form.locator("day-time-selector")
+    selector.scroll_into_view_if_needed()
+    add_row_btn = selector.get_by_role("button", name="Add row")
+
+    for i, (day, start, end) in enumerate(rows_data):
+        add_row_btn.click()
+        row = selector.locator("div.day-time-row").nth(i)
+        expect(row).to_be_visible()
+        row.scroll_into_view_if_needed()
+
+        select_mat_option_on(page, row.locator("mat-select").nth(0), day)
+        select_mat_option_on(page, row.locator("mat-select").nth(1), start)
+        select_mat_option_on(page, row.locator("mat-select").nth(2), end)
+    ok(90, f"added {len(rows_data)} day & time rows (every day, 6:00 AM – 12:00 AM, from the JSON's smallest line item schedule)")
+
+    rows = selector.locator("div.day-time-row")
+    expect(rows).to_have_count(len(rows_data))
+    for i, (day, start, end) in enumerate(rows_data):
+        row = rows.nth(i)
+        expect(row.locator("mat-select").nth(0)).to_contain_text(day)
+        expect(row.locator("mat-select").nth(1)).to_contain_text(start)
+        expect(row.locator("mat-select").nth(2)).to_contain_text(end)
+    ok(91, f"'Day & time' section shows all {len(rows_data)} rows with the expected values")
+
+
+# --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
 def main():
@@ -567,8 +919,13 @@ def main():
             test_channel_targeting(page, li_form, ref)
             test_negative_keyword_list_targeting(page, li_form, ref)
             test_audience_targeting(page, li_form, ref)
+            test_geo_region_targeting(page, li_form, ref)
+            test_url_targeting(page, li_form, ref)
+            test_keyword_targeting(page, li_form, ref)
+            test_category_targeting(page, li_form, ref)
+            test_day_time_targeting(page, li_form)
 
-            print("\nALL TESTS PASSED (Channels + Negative Keyword List + Audiences targeting) ✅")
+            print("\nALL TESTS PASSED (Channels + Negative Keyword List + Audiences + Geo Regions + URLs + Keywords + Categories + Day & Time targeting) ✅")
             page.wait_for_timeout(3000)
 
         except AssertionError as error:
