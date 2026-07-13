@@ -1,23 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-PLAYWRIGHT TEST - publicisnexify.com  (JSON-driven DV360 targeting suite)
+PLAYWRIGHT TEST - publicisnexify.com (JSON-driven DV360 targeting suite)
 ==========================================================================
-Validates that DV360 line-item targeting sections in Nexify can be driven
-from a real DV360 API export (reference JSON), by comparing the export's
-values against what the Nexify UI actually lets you select.
+Checks that DV360 targeting sections in Nexify can be driven from a real
+DV360 API export, by comparing the export's values against what the UI
+actually lets you pick.
 
-Built incrementally, one targeting type at a time (see task list). Each
-run repeats the campaign creation flow up to the Line Items form, using
-the SAME DV360 advertiser the reference JSON was exported from
-(client "Samsung" / advertiser "Samsung_ES_Starcom", DV360 advertiserId
-2429284) so that advertiser-scoped resources (channels, negative keyword
-lists, audiences, deals) can actually be found in the picker dialogs.
+Each run repeats campaign creation up to Line Items, using the SAME
+advertiser the reference JSON came from (Samsung / Samsung_ES_Starcom,
+DV360 advertiserId 2429284) so advertiser-scoped pickers (channels,
+negative keyword lists, audiences, deals) can find matching data.
 
-For every targeting section, only the first 2 DISTINCT values found in the
-reference JSON are inserted (per user instruction), and budgets are kept
-at 1 EUR everywhere to avoid triggering any real spend. The flow currently
-stops right after the implemented targeting section(s) - it does NOT click
-"Next" / "Start campaign" yet.
+Generally only the first 2 distinct values per section are inserted
+(exceptions are called out in each function's docstring), and budgets
+stay at 1 EUR to avoid real spend. The flow stops after targeting — it
+does not yet click "Next" / "Start campaign".
 
 Run with:        python test_dv360_json_playwright.py
 """
@@ -58,13 +55,9 @@ def load_reference() -> dict:
 
 
 def select_mat_option_on(page: Page, select, option_name: str):
-    """
-    Same mechanics as select_mat_option() in test_dv360_playwright.py, but
-    takes an already-resolved mat-select locator instead of a
-    formcontrolname - needed for the day-time-selector rows, whose
-    mat-selects are driven by (selectionChange) handlers, not reactive
-    form controls.
-    """
+    """Same mechanics as select_mat_option(), but takes an already-resolved
+    locator instead of a formcontrolname — needed for day-time-selector rows,
+    whose mat-selects use (selectionChange) handlers, not reactive forms."""
     expect(select).to_be_visible()
     select.scroll_into_view_if_needed()
     select_id = select.get_attribute("id")
@@ -99,11 +92,8 @@ def select_mat_option_on(page: Page, select, option_name: str):
 
 
 def unique_targeting_values(ref: dict, targeting_type: str, detail_key: str, id_field: str):
-    """
-    Collect the DISTINCT values for a given targetingType across every line
-    item in the reference JSON, in first-seen order, as (id, negative) pairs.
-    Used to pick "the first N values" for a given targeting section.
-    """
+    """Collect distinct (id, negative) pairs for a targetingType across every
+    line item in the reference JSON, in first-seen order."""
     seen = {}
     order = []
     for io in ref["insertionOrders"]:
@@ -120,12 +110,9 @@ def unique_targeting_values(ref: dict, targeting_type: str, detail_key: str, id_
 
 
 def unique_audience_group_ids(ref: dict, group_key: str, id_field: str, nested_list: bool = False):
-    """
-    Same idea as unique_targeting_values(), but for TARGETING_TYPE_AUDIENCE_GROUP
-    sub-groups, whose ids live one level deeper under audienceGroupDetails[group_key]
-    .settings[*][id_field] (and group_key itself is a list of groups for the
-    'includedFirstPartyAndPartnerAudienceGroups' variant).
-    """
+    """Same idea as unique_targeting_values(), but for audience-group
+    sub-groups, whose ids live one level deeper at
+    audienceGroupDetails[group_key].settings[*][id_field]."""
     seen = []
     for io in ref["insertionOrders"]:
         for li in io.get("lineItems", []):
@@ -290,29 +277,21 @@ def test_line_items_form_basics(page: Page):
 # Targeting: Channels (included / excluded)
 # --------------------------------------------------------------------------
 def test_channel_targeting(page: Page, li_form, ref: dict):
-    """
-    TEST 60-67: 'Included/Excluded channels' section.
+    """TEST 60-67: 'Included/Excluded channels' section.
 
-    The reference JSON has ONLY excluded channel entries for this campaign
-    (37 entries, all negative=true), so the Excluded panel is driven from
-    JSON values; the Included panel has no JSON data, so it's driven from
-    2 names picked directly at the user's request instead.
-
-    Channel lists are advertiser-scoped (DV360 advertisers.channels.list),
-    so the picker only shows Samsung_ES_Starcom's own lists. The JSON's
-    dominant channelId (1672780816, 33/37 entries) no longer exists in the
-    live account; we use the next 2 distinct channelIds from the JSON that
-    DO still exist there.
+    The JSON only has excluded entries (37, all negative), so Excluded is
+    driven from JSON data while Included uses 2 names picked directly (no
+    JSON data exists for it). Channel lists are advertiser-scoped, so the
+    picker only shows Samsung_ES_Starcom's lists — the JSON's dominant
+    channelId no longer exists there, so we use the next 2 that do.
     """
     excl_pairs = unique_targeting_values(ref, "TARGETING_TYPE_CHANNEL", "channelDetails", "channelId")
     excluded_ids = [cid for cid, negative in excl_pairs if negative]
     assert excluded_ids, "Expected at least some excluded channel entries in the reference JSON"
 
-    # Map the live grid's visible names to the JSON's channelIds by capturing
-    # the dialog's own data-load response (id -> name), then select the
-    # first 2 JSON channelIds that are actually present in the live list.
-    # (A separate page.request.get() call does not carry the app's runtime
-    # auth token, so we must observe the real browser request instead.)
+    # Capture the dialog's own data-load response (id -> name) to map JSON
+    # channelIds to live names — a separate page.request.get() wouldn't
+    # carry the app's auth token, so we observe the real browser request.
     captured = []
     page.on(
         "response",
@@ -363,9 +342,8 @@ def test_channel_targeting(page: Page, li_form, ref: dict):
         expect(excluded_section.locator("span", has_text=name)).to_be_visible()
     ok(63, f"'Excluded channels' panel now shows: {[n for _, n in matched]}")
 
-    # The reference JSON has zero included-channel entries for this campaign,
-    # so these 2 names were picked directly (not from the JSON) at the
-    # user's request, from the same live Samsung_ES_Starcom channel list.
+    # No included-channel entries in the JSON, so these 2 names were picked
+    # directly from the live Samsung_ES_Starcom channel list instead.
     included_names = ["Whitelist best performers", "Whitelist best performers top 10"]
 
     included_section = li_form.locator("div.border.rounded-xl.p-4", has_text="Included channels")
@@ -403,13 +381,10 @@ def test_channel_targeting(page: Page, li_form, ref: dict):
 # Targeting: Negative Keyword List
 # --------------------------------------------------------------------------
 def test_negative_keyword_list_targeting(page: Page, li_form, ref: dict):
-    """
-    TEST 68-71: 'Negative Keyword List' section.
+    """TEST 68-71: 'Negative Keyword List' section.
 
-    Unlike Channels, ALL 4 distinct negativeKeywordListIds found in the
-    reference JSON still exist in the live Samsung_ES_Starcom account (no
-    drift), so - per user instruction - all 4 are selected rather than
-    just the first 2.
+    Unlike Channels, all 4 JSON negativeKeywordListIds still exist live
+    (no drift), so all 4 get selected instead of just the first 2.
     """
     nkl_ids = [lid for lid, _ in unique_targeting_values(
         ref, "TARGETING_TYPE_NEGATIVE_KEYWORD_LIST", "negativeKeywordListDetails", "negativeKeywordListId"
@@ -469,23 +444,17 @@ def test_negative_keyword_list_targeting(page: Page, li_form, ref: dict):
 # Targeting: Audiences (Included only - Custom lists + Google audiences)
 # --------------------------------------------------------------------------
 def test_audience_targeting(page: Page, li_form, ref: dict):
-    """
-    TEST 72-76: 'Included audiences' section - Custom lists and Google
-    audiences sub-types only.
+    """TEST 72-76: 'Included audiences' — Custom lists and Google audiences
+    sub-types only.
 
-    First-party/partner audiences (98 included / 197 excluded unique ids in
-    the reference JSON) are SKIPPED for now: the picker only supports
-    searching by display-name substring, not by raw id, and this Samsung
-    account's first-party audience library goes back over a decade in
-    small (~7-10 item) pages - not tractable to match by id via the UI.
-    The user will provide display names directly for that sub-type later.
+    First-party/partner audiences are skipped for now: the picker only
+    searches by display-name substring, and this account's first-party
+    library is too large/paged to match reliably by id. Names for that
+    sub-type will be supplied directly later.
 
-    Both remaining sub-types match 1:1 against live data (no drift). Each
-    id is located via the dialog's search box (server-side 'contains'
-    filter) rather than paging through the client-side grid pager - faster
-    and avoids relying on client pagination staying in sync. Selections
-    made across a type switch are preserved by the dialog and applied
-    together in one 'Apply' click.
+    The two remaining sub-types match 1:1 against live data, located via
+    the dialog's search box (server-side filter, faster than paging).
+    Selections persist across a type switch and get applied together.
     """
     custom_ids = unique_audience_group_ids(ref, "includedCustomListGroup", "customListId")
     google_ids = unique_audience_group_ids(ref, "includedGoogleAudienceGroup", "googleAudienceId")
@@ -516,10 +485,9 @@ def test_audience_targeting(page: Page, li_form, ref: dict):
         return len(captured) > baseline
 
     def search_term_candidates(name: str):
-        # The free-text search filters server-side by 'contains' against the
-        # audience's raw name, which fails for category-prefixed names like
-        # '[In-Market] : Televisions' (the brackets/colon prefix breaks the
-        # match). Fall back to just the part after the last ':' in that case.
+        # Server-side search does 'contains' on the raw name, which fails for
+        # prefixed names like '[In-Market] : Televisions' — fall back to
+        # just the part after the last ':'.
         candidates = [name]
         if ":" in name:
             tail = name.split(":")[-1].strip()
@@ -536,9 +504,7 @@ def test_audience_targeting(page: Page, li_form, ref: dict):
             if not captured:
                 continue
             results = captured[-1].json()["results"]
-            # Match by (index, id) rather than by name text: names aren't
-            # guaranteed unique, so select the row by its position in the
-            # search response instead.
+            # Match by position, not name text — names aren't guaranteed unique.
             idx = next((i for i, item in enumerate(results) if item["id"] == _id), None)
             if idx is None:
                 continue
@@ -592,19 +558,14 @@ def test_audience_targeting(page: Page, li_form, ref: dict):
 # Targeting: Geo Regions (included / excluded)
 # --------------------------------------------------------------------------
 def test_geo_region_targeting(page: Page, li_form, ref: dict):
-    """
-    TEST 77-80: 'Included/Excluded geo regions' section.
+    """TEST 77-80: 'Included/Excluded geo regions' section.
 
-    Geo regions are DV360's global taxonomy (targetingTypes().targetingOptions()
-    .search, not advertiser-scoped), so all 7 distinct ids in the reference
-    JSON are expected to exist regardless of advertiser - all 7 are selected
-    (per user instruction), split 3 excluded / 4 included by the JSON's
-    'negative' flag.
+    Geo regions are DV360's global taxonomy (not advertiser-scoped), so all
+    7 JSON ids are expected to exist and all get selected — 3 excluded, 4
+    included, per the JSON's 'negative' flag.
 
-    Unlike Channels/Negative Keyword List, the geo-region picker does NOT
-    auto-load on open: it only fetches once you type a search term and
-    submit (DV360's geo search requires a query). So each id is searched by
-    its JSON displayName, one at a time, before being selected.
+    Unlike Channels/Negative Keyword List, this picker only fetches once you
+    search, so each id is looked up by its JSON displayName one at a time.
     """
     pairs = unique_targeting_values(ref, "TARGETING_TYPE_GEO_REGION", "geoRegionDetails", "targetingOptionId")
     excluded_ids = [gid for gid, negative in pairs if negative]
@@ -651,10 +612,8 @@ def test_geo_region_targeting(page: Page, li_form, ref: dict):
                 page.wait_for_timeout(250)
             assert captured, f"Did not observe the geo region API response for query '{query}'"
             results = captured[-1].json()["results"]
-            # Match by (index, name) rather than a name->id dict: geo names can
-            # collide (e.g. two different ids both named "Santa Cruz de
-            # Tenerife, Canary Islands, Spain"), so select the row by its
-            # position in the API response instead of by text alone.
+            # Match by position, not a name->id dict — geo names can collide
+            # (e.g. two different ids sharing the same display name).
             idx = next((i for i, item in enumerate(results) if item["id"] == gid), None)
             assert idx is not None, (
                 f"JSON geo id {gid} ('{query}') not found in live search results: {results}"
@@ -674,9 +633,8 @@ def test_geo_region_targeting(page: Page, li_form, ref: dict):
     ok(77, f"'Add excluded geo' dialog driven, selected {len(matched_excl)}: {[n for _, n in matched_excl]}")
 
     for gid, name in matched_excl:
-        # Some geo names are substrings of others (e.g. "Santa Cruz de
-        # Tenerife..." vs "Province of Santa Cruz de Tenerife..."), so
-        # match on name+id together, not name alone.
+        # Some geo names are substrings of others, so match name+id
+        # together rather than name alone.
         expect(
             excl_section.get_by_text(re.compile(rf"{re.escape(name)} \({gid}\)"))
         ).to_be_visible()
@@ -696,12 +654,11 @@ def test_geo_region_targeting(page: Page, li_form, ref: dict):
 # Targeting: URLs (included / excluded)
 # --------------------------------------------------------------------------
 def test_url_targeting(page: Page, li_form, ref: dict):
-    """
-    TEST 81-82: 'Included/Excluded URLs' section.
+    """TEST 81-82: 'Included/Excluded URLs' section.
 
-    Plain comma-separated text fields, no picker dialog and no advertiser
-    scoping - all 3 distinct excluded urls from the JSON are inserted
-    directly. The JSON has zero included urls, so that field is left empty.
+    Plain comma-separated text fields, no picker dialog. All 3 excluded
+    urls from the JSON go in directly; there are no included urls, so that
+    field stays empty.
     """
     pairs = unique_targeting_values(ref, "TARGETING_TYPE_URL", "urlDetails", "url")
     excluded_urls = [u for u, negative in pairs if negative]
@@ -723,13 +680,10 @@ def test_url_targeting(page: Page, li_form, ref: dict):
 # Targeting: Keywords (included / excluded)
 # --------------------------------------------------------------------------
 def test_keyword_targeting(page: Page, li_form, ref: dict):
-    """
-    TEST 83-84: 'Included/Exclude Keywords' section.
+    """TEST 83-84: 'Included/Exclude Keywords' section.
 
-    Plain comma-separated text fields, same mechanics as URLs. Per user
-    instruction, ALL 225 distinct included keywords are inserted (no
-    picker/lookup involved, so there's no reason to cap it), plus all 5
-    distinct excluded keywords.
+    Same plain-text mechanics as URLs. All 225 included and all 5 excluded
+    keywords from the JSON go in — no picker involved, so no reason to cap it.
     """
     pairs = unique_targeting_values(ref, "TARGETING_TYPE_KEYWORD", "keywordDetails", "keyword")
     included_keywords = [k for k, negative in pairs if not negative]
@@ -752,22 +706,17 @@ def test_keyword_targeting(page: Page, li_form, ref: dict):
 # Targeting: Categories (included / excluded)
 # --------------------------------------------------------------------------
 def test_category_targeting(page: Page, li_form, ref: dict):
-    """
-    TEST 85-89: 'Categories' section (single 'Manage' dialog, tree UI with
-    Include/Exclude buttons per node - not two separate picker dialogs).
+    """TEST 85-89: 'Categories' section — one 'Manage' dialog with a tree UI
+    (Include/Exclude buttons per node), not two separate pickers.
 
-    Categories are DV360 global taxonomy, so no advertiser-drift risk.
+    Categories are DV360's global taxonomy, so no advertiser-drift risk.
 
-    KNOWN NEXIFY LIMITATION: id 54 ('Social Issues & Advocacy') and id 82
-    ('Social Issues & Advocacy/Green Living & Environmental Issues') are
-    ancestor/descendant of each other, and both are excluded in the
-    reference JSON. Nexify's Categories dialog LOCKS (disables) a node's
-    Include/Exclude buttons once an ancestor is already excluded
-    (isLocked() -> hasExcludedAncestor()), so the two can't both be set
-    through this UI even though DV360 itself allows it. Per user
-    instruction, id 54 (the broader parent) is dropped in favor of id 82
-    (the more specific child) - 11 of the JSON's 12 excluded categories
-    are selected, substituting 82 for 54.
+    KNOWN NEXIFY LIMITATION: ids 54 and 82 are ancestor/descendant of each
+    other and both excluded in the JSON, but Nexify's dialog locks a node's
+    buttons once an ancestor is already excluded — so both can't be set
+    through this UI even though DV360 allows it. We drop 54 (the broader
+    parent) and keep 82 (the specific child): 11 of the 12 excluded
+    categories get selected.
     """
     pairs = unique_targeting_values(ref, "TARGETING_TYPE_CATEGORY", "categoryDetails", "targetingOptionId")
     included_ids = [c for c, negative in pairs if not negative]
@@ -813,11 +762,9 @@ def test_category_targeting(page: Page, li_form, ref: dict):
         for _ in range(10):
             if target_row.count() > 0 and target_row.first.is_visible():
                 break
-            # Only click STILL-COLLAPSED ('chevron_right') toggles. Using
-            # ":visible".first alone always re-matches the topmost node
-            # (constant DOM order regardless of expand state), which just
-            # toggles it open/closed instead of drilling into the child
-            # revealed underneath.
+            # Only click toggles still showing 'chevron_right' (collapsed).
+            # ":visible".first alone always re-matches the same topmost node
+            # regardless of expand state, so it'd just toggle it shut again.
             toggle = dialog.locator("button[aria-label^='Toggle ']:visible").filter(has_text="chevron_right").first
             if toggle.count() == 0:
                 break
@@ -853,16 +800,12 @@ def test_category_targeting(page: Page, li_form, ref: dict):
 # Targeting: Day & Time
 # --------------------------------------------------------------------------
 def test_day_time_targeting(page: Page, li_form):
-    """
-    TEST 90-91: 'Day & time' section (<day-time-selector>, not a reactive
-    form control - each row's 3 mat-selects are driven by (selectionChange)
-    handlers instead of formcontrolname).
+    """TEST 90-91: 'Day & time' section (<day-time-selector> — each row's 3
+    mat-selects use (selectionChange) handlers, not formcontrolname).
 
-    The reference JSON has 43 unique (day, hour range) combos aggregated
-    across ALL 33 line items - not representative of a single line item.
-    Per user instruction, uses the full 7-row schedule from the JSON's
-    smallest individual line item instead (every day of week, 6:00 AM to
-    12:00 AM - line item 'ID~GLL0001D4R_FF~AddToCartAndroid...').
+    The JSON's 43 unique combos are aggregated across all 33 line items, not
+    representative of any single one. Instead we use the full 7-row schedule
+    from the JSON's smallest line item (every day, 6:00 AM - 12:00 AM).
     """
     rows_data = [
         ("Monday", "6:00 AM", "12:00 AM"),
@@ -903,12 +846,9 @@ def test_day_time_targeting(page: Page, li_form):
 # Finish: Next -> Recap -> Start campaign
 # --------------------------------------------------------------------------
 def test_finish_and_submit(page: Page):
-    """
-    TEST 92-93: click 'Next' from Line Items to reach Recap, then attempt
-    'Start campaign'. Mirrors the same safety gate as the base suite
-    (test_dv360_playwright.py TEST 61): this ACTUALLY LAUNCHES a real
-    campaign on Samsung's live DV360 account, so the click only happens if
-    the terminal confirmation is explicitly typed 'yes'.
+    """TEST 92-93: 'Next' from Line Items to Recap, then attempt 'Start
+    campaign'. Same safety gate as the base suite — this actually launches a
+    real campaign, so it only clicks through if you type 'yes'.
     """
     footer = page.locator("div.step-footer")
     footer.locator("button.mdc-button", has_text="Next").click()

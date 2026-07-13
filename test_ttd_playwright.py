@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-PLAYWRIGHT TEST - publicisnexify.com  -  TTD (The Trade Desk)
-============================================================
-Test suite for the campaign creation flow on the TTD DSP.
+PLAYWRIGHT TEST - publicisnexify.com - TTD (The Trade Desk)
+=============================================================
+Tests the campaign creation flow for the TTD DSP.
 
-TTD-specific structure (differs from DV360):
+How TTD differs from DV360:
   - DSP component: app-ttd-* (data-dsp-id="ttd")
-  - Level 1: "Campaign Channels"  (vs "Insertion Orders" on DV360)
-  - Level 2: "Ad Groups"          (vs "Line Items" on DV360)
+  - Level 1: "Campaign Channels" (DV360 calls this "Insertion Orders")
+  - Level 2: "Ad Groups" (DV360 calls this "Line Items")
   - Periods are called "Flights"
 
 Reuses the shared helpers and SSO handling from test_dv360_playwright
-(importing them does NOT run that suite: its main() is guarded by __main__).
+(importing it won't run that suite too — its main() is __main__-guarded).
 
 Run with:        python test_ttd_playwright.py
 Force new login: delete auth_state.json and run again.
@@ -34,19 +34,22 @@ from test_dv360_playwright import (
     select_all_multi,
     fill_and_verify,
     manual_login,
-    test_landing,  # generic /campaign landing check (DSP-agnostic), reused as-is
+    test_landing,  # generic /campaign landing check, DSP-agnostic
 )
 
 # Advertiser (TTD) selected in the General Info grid -> makes this a TTD campaign.
 TTD_ADVERTISER = "Garnier_ES"
 
+# Campaign Channels name counter: "Channel x - Client - Unix Date" (TTD's
+# Campaign Channels is the level 1 equivalent of DV360's Insertion Orders).
+# Resets to 0 each script run (one campaign per run) and increments per
+# channel created.
+_channel_name_counter = 0
+
 
 def _open_and_select(page: Page, select, option_name: str):
-    """
-    Open a <mat-select> given by its Locator (not by formcontrolname) and select
-    the exact option. Same robust open/verify logic as the shared
-    select_mat_option, used for TTD selects that have no formcontrolname.
-    """
+    """Same open/verify logic as select_mat_option, but takes the select's
+    Locator directly — for TTD selects that have no formcontrolname."""
     expect(select).to_be_visible()
     select.scroll_into_view_if_needed()
     select_id = select.get_attribute("id")
@@ -80,7 +83,7 @@ def _set_date_range_dialog(page: Page, date_from, date_to):
     start.fill(date_from.strftime(DATE_FMT))
     end.fill(date_to.strftime(DATE_FMT))
     end.press("Enter")  # commit the range before applying
-    # If the dates registered, Apply becomes enabled; otherwise fail clearly.
+    # Apply only enables once the dates registered — fails clearly otherwise.
     apply_btn = dlg.locator("button.mdc-button--unelevated", has_text="Apply")
     expect(apply_btn).to_be_enabled()
     apply_btn.click()
@@ -88,7 +91,7 @@ def _set_date_range_dialog(page: Page, date_from, date_to):
 
 
 # --------------------------------------------------------------------------
-# TTD test steps  (filled in as the HTML of each section is provided)
+# TTD test steps
 # --------------------------------------------------------------------------
 def test_ttd_general_info(page: Page):
     """TEST 4-16: campaign creation, General Info step, TTD advertiser grid."""
@@ -152,10 +155,9 @@ def test_ttd_general_info(page: Page):
     expect(grid.locator("div.dx-pager")).to_be_visible()
     ok(14, f"advertiser grid visible with {rows.count()} rows and pager")
 
-    # The same advertiser name can exist for multiple DSPs (e.g. "Garnier_ES" on
-    # both DV360 and TTD). We search to narrow the grid (handles pagination too),
-    # then select the row that has BOTH the TTD badge (column 2) and the
-    # advertiser name (column 3) — this is what makes the campaign a TTD one.
+    # "Garnier_ES" exists under multiple DSPs (DV360, TTD), so narrow via
+    # search (this also handles pagination) then match on both the TTD badge
+    # and the advertiser name.
     search_box = grid.locator("input[aria-label='Search in the data grid']")
     search_box.fill(TTD_ADVERTISER)
     adv_row = (
@@ -182,8 +184,8 @@ def test_ttd_general_info(page: Page):
 
 def test_ttd_global_setup(page: Page):
     """TEST 17-22: TTD Global Setup (campaign group, Seed Id, Time Zone, PO, dates)."""
-    # Navigate from General Info: click "Next". DV360 showed a template selector
-    # dialog here; TTD may or may not. We dismiss it best-effort if it appears.
+    # DV360 shows a template selector here; TTD may or may not — dismiss it
+    # best-effort if it appears.
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
     tmpl = page.locator("app-template-selector-dialog")
     try:
@@ -198,8 +200,7 @@ def test_ttd_global_setup(page: Page):
     expect(gs_form.locator("h2", has_text="TTD Campaign Global")).to_be_visible()
     ok(17, "navigated to TTD Global Setup ('TTD Campaign Global' visible)")
 
-    # TEST 18: campaign group = "Do not create campaign group" (default). Click it
-    # only if not already selected, then verify.
+    # Click it only if not already selected, then verify.
     none_radio = gs_form.locator("mat-radio-button", has_text="Do not create campaign group")
     none_input = none_radio.locator("input[type='radio']")
     if not none_input.is_checked():
@@ -220,8 +221,7 @@ def test_ttd_global_setup(page: Page):
     select_mat_option(page, "timeZone", "(UTC) Coordinated Universal Time")
     ok(21, "Time Zone = '(UTC) Coordinated Universal Time' selected and verified")
 
-    # TEST 22: Dates - open the custom date dialog (the form inputs are readonly),
-    # fill the start/end range (tomorrow / day after) and Apply.
+    # The date inputs are readonly, so dates go through the custom dialog.
     today = datetime.date.today()
     date_from = today + datetime.timedelta(days=1)
     date_to = today + datetime.timedelta(days=2)
@@ -229,8 +229,8 @@ def test_ttd_global_setup(page: Page):
     _set_date_range_dialog(page, date_from, date_to)
     ok(22, f"Dates set via dialog: Start={date_from} End={date_to}")
 
-    # Persistence guard: Purchase Order is required at campaign start and may get
-    # cleared by a reload (e.g. after the date dialog). Re-fill if it got reset.
+    # Purchase Order is required at campaign start and can get cleared by a
+    # reload (e.g. after the date dialog) — re-fill if it got reset.
     po_input = gs_form.locator("input[formcontrolname='purchaseOrderNumber']")
     if not po_input.input_value():
         po_input.fill(purchase_order)
@@ -239,7 +239,7 @@ def test_ttd_global_setup(page: Page):
 
 def test_ttd_campaign_channels(page: Page):
     """TEST 23-31: TTD Campaign Channels (channel, pacing, KPIs, flight, conversion reporting)."""
-    # Navigate from Global Setup with "Next" (re-click if the first only blurs).
+    # Re-click "Next" if the first click only blurs instead of navigating.
     cc_form = page.locator("app-ttd-campaign-channels form")
     for _ in range(3):
         page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
@@ -253,7 +253,9 @@ def test_ttd_campaign_channels(page: Page):
     ok(23, "navigated to TTD Campaign Channels ('TTD Campaign Channels' visible)")
 
     # TEST 24: Campaign/Channel Name
-    channel_name = f"Audio - Test - {int(time.time())}"
+    global _channel_name_counter
+    _channel_name_counter += 1
+    channel_name = f"Channel {_channel_name_counter} - L'Oreal - {int(time.time())}"
     fill_and_verify(cc_form, "campaignName", channel_name)
     ok(24, f"Campaign Name (channel) filled with '{channel_name}'")
 
@@ -265,14 +267,13 @@ def test_ttd_campaign_channels(page: Page):
     select_mat_option(page, "pacingMode", "Pace Evenly")
     ok(26, "Pacing Mode = 'Pace Evenly' selected and verified")
 
-    # TEST 27: Primary KPI Goal Type = Completion Rate.
-    # The three "Goal Type" selects (Primary/Secondary/Tertiary) have no
-    # formcontrolname; they appear in that order, so Primary is the first.
+    # The three Goal Type selects (Primary/Secondary/Tertiary) have no
+    # formcontrolname, but they appear in that order — Primary is the first.
     primary_goal = cc_form.locator("mat-form-field", has_text="Goal Type").nth(0).locator("mat-select")
     _open_and_select(page, primary_goal, "Completion Rate")
     ok(27, "Primary KPI Goal Type = 'Completion Rate' selected and verified")
 
-    # TEST 28: Primary KPI Goal % = 1 (input with no formcontrolname -> by label).
+    # No formcontrolname on this input either, so locate it by label.
     goal_pct = cc_form.locator("mat-form-field", has_text="Goal %").locator("input")
     expect(goal_pct).to_be_visible()
     goal_pct.fill("1")
@@ -284,9 +285,8 @@ def test_ttd_campaign_channels(page: Page):
     date_from = today + datetime.timedelta(days=1)
     date_to = today + datetime.timedelta(days=2)
     flight = cc_form.locator("div.flight-row").first
-    # Open the date dialog via the calendar icon button (the readonly date input
-    # itself has zero size). With the maximized window the button is no longer
-    # overlapped, so a normal click works.
+    # The date input itself is zero-size, so open the dialog via the calendar
+    # icon button instead (only clickable once the window is maximized).
     flight.locator("button.dt-suffix").first.click()
     _set_date_range_dialog(page, date_from, date_to)
     ok(29, f"Flight dates set via dialog: Start={date_from} End={date_to}")
@@ -295,8 +295,7 @@ def test_ttd_campaign_channels(page: Page):
     fill_and_verify(flight, "budgetAmount", "1")
     ok(30, "Flight Budget = 1 entered and verified")
 
-    # TEST 31: Conversion reporting — Cross-Device Concept options
-    # (None/Person/Household) + Vendor dropdown unlocked once Concept != None.
+    # Conversion reporting: Vendor unlocks once Cross-Device Concept != None.
     conv_section = cc_form.locator("section.frequency-section").filter(
         has=page.get_by_text("Conversion reporting", exact=True)
     )
@@ -335,8 +334,8 @@ def test_ttd_campaign_channels(page: Page):
 
 def test_ttd_ad_groups(page: Page):
     """TEST 32-40: Step 4 Ad Groups (with channels summary dialog confirmation)."""
-    # From Campaign Channels click "Next": the summary dialog opens (same
-    # dv360-io-summary-dialog component as DV360, with TTD content).
+    # "Next" opens the same dv360-io-summary-dialog component DV360 uses,
+    # just with TTD content.
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
 
     # TEST 32: "Review insertion orders" dialog, confirm with "Confirm & continue".
@@ -360,10 +359,8 @@ def test_ttd_ad_groups(page: Page):
     fill_and_verify(ag_form, "adGroupName", ad_group_name)
     ok(34, f"Ad Group Name filled with '{ad_group_name}'")
 
-    # TEST 35: Channel = Audio.
-    # Changing the channel reloads the ad group config in a DEBOUNCED way and can
-    # reset Funnel Location and the bid fields. We set the channel FIRST and wait
-    # for the reload to settle before filling the others.
+    # Changing the channel debounce-reloads the ad group config and can reset
+    # Funnel Location and the bid fields — set channel first, then wait it out.
     select_mat_option(page, "channelId", "Audio")
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(2500)
@@ -381,9 +378,8 @@ def test_ttd_ad_groups(page: Page):
     fill_and_verify(ag_form, "maxBidAmount", "1")
     ok(38, "Max Bid CPM = 1 entered and verified")
 
-    # Persistence guard: a late debounced reload (from the channel change) may
-    # clear Funnel Location / bids after we set them. Re-apply any that got reset,
-    # then assert they are populated (these are required at campaign start).
+    # The channel-change reload can clear Funnel Location/bids after they're
+    # set — re-apply anything that got reset, then confirm it's populated.
     page.wait_for_timeout(1000)
     funnel_select = page.locator("mat-select[formcontrolname='funnelLocation']")
     if "mat-mdc-select-empty" in (funnel_select.get_attribute("class") or ""):
@@ -426,8 +422,8 @@ def test_ttd_ad_groups(page: Page):
 
 def test_ttd_recap(page: Page, campaign_name: str):
     """TEST 41-45: Recap, Start campaign (user-gated), redirect + submitted check."""
-    # From Ad Groups click "Next" to reach the Recap step. A summary dialog may
-    # appear (as on the channels step): dismiss it best-effort if it does.
+    # A summary dialog may appear here too (as on the channels step) — dismiss
+    # it best-effort if it does.
     page.locator("div.step-footer").locator("button.mdc-button", has_text="Next").click()
     dialog = page.locator("dv360-io-summary-dialog")
     try:
@@ -446,9 +442,8 @@ def test_ttd_recap(page: Page, campaign_name: str):
     expect(recap_step).to_have_attribute("aria-selected", "true")
     ok(41, "navigated to the Recap step ('Review before creating the Campaign')")
 
-    # TEST 42: click "Start campaign".
-    # WARNING: this is a consequential action (it actually LAUNCHES the TTD
-    # campaign) and is hard to undo. The click happens ONLY if the user types 'yes'.
+    # WARNING: this actually launches the TTD campaign and can't be undone —
+    # it only clicks through if you type 'yes' below.
     start_btn = page.locator("button.mdc-button", has_text="Start campaign")
     expect(start_btn).to_be_visible()
     answer = input(
@@ -457,8 +452,8 @@ def test_ttd_recap(page: Page, campaign_name: str):
     ).strip().lower()
     if answer == "yes":
         start_btn.click()
-        # If the server rejects the data, an activation-errors dialog appears.
-        # Surface its messages as a clear test failure instead of passing silently.
+        # Surface server-side validation errors as a test failure instead of
+        # passing silently.
         errors_dialog = page.locator("app-campaign-activation-errors-dialog")
         appeared = False
         try:
@@ -481,9 +476,8 @@ def test_ttd_recap(page: Page, campaign_name: str):
         )
         ok(43, f"redirected to the campaigns list ({page.url})")
 
-        # TEST 44: the just-created campaign appears as a row in the table.
-        # The campaigns list is a dx-data-grid; search to filter (handles
-        # pagination), then target the row whose Name cell (column 1) matches.
+        # Search to filter the list (handles pagination), then match the row
+        # whose Name cell (column 1) equals the campaign name.
         grid = page.locator("div.border.border-slate-200.rounded-xl dx-data-grid")
         expect(grid).to_be_visible()
         grid.locator("input[aria-label='Search in the data grid']").fill(campaign_name)
@@ -494,8 +488,7 @@ def test_ttd_recap(page: Page, campaign_name: str):
         expect(campaign_row).to_be_visible()
         ok(44, f"campaign '{campaign_name}' found in the campaigns table")
 
-        # TEST 45: campaign is in 'SUBMITTED' or 'COMPLETED' status (Status is column 9).
-        # COMPLETED is the next valid state after SUBMITTED, so both are acceptable.
+        # COMPLETED is the next valid state after SUBMITTED, so both pass.
         status_cell = campaign_row.locator("td[aria-colindex='9']")
         status_text = status_cell.inner_text().strip()
         assert status_text in ("SUBMITTED", "COMPLETED"), (
@@ -519,9 +512,9 @@ def main():
         storage_state = str(AUTH_FILE)
 
         print("\nOpening the browser with the SSO session...")
-        # Maximize the window and use the real screen size (no_viewport=True):
-        # a small viewport makes the responsive layout collapse fields (e.g. the
-        # flight row date inputs), making them zero-size / not clickable.
+        # no_viewport=True uses the real screen size — a small viewport
+        # collapses the responsive layout (e.g. the flight row date inputs)
+        # into unclickable, zero-size fields.
         browser = p.chromium.launch(headless=False, args=["--start-maximized"])
         context = browser.new_context(storage_state=storage_state, no_viewport=True)
         page = context.new_page()

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-PLAYWRIGHT TEST - publicisnexify.com  -  Amazon DSP
-===================================================
-Test suite for the campaign creation flow on the Amazon DSP.
+PLAYWRIGHT TEST - publicisnexify.com - Amazon DSP
+==================================================
+Tests the campaign creation flow for the Amazon DSP.
 
 Reuses the shared helpers and SSO handling from test_dv360_playwright
-(importing them does NOT run that suite: its main() is guarded by __main__).
+(importing it won't run that suite too — its main() is __main__-guarded).
 
 Run with:        python test_amazon_playwright.py
 Force new login: delete auth_state.json and run again.
@@ -26,7 +26,7 @@ from test_dv360_playwright import (
     select_mat_option,
     fill_and_verify,
     manual_login,
-    test_landing,  # generic /campaign landing check (DSP-agnostic), reused as-is
+    test_landing,  # generic /campaign landing check, DSP-agnostic
 )
 
 # General Info selections that make this an Amazon campaign.
@@ -34,9 +34,13 @@ AMAZON_CLIENT = "Samsung"
 AMAZON_ADVERTISER = "Samsung_ES_Starcom"
 AMAZON_DSP_BADGE = "Amazon"  # DSP badge text in the advertiser grid
 
+# Ad Group name counter: "AG x - Client - Unix Date". Resets to 0 each script
+# run (one campaign per run) and increments per ad group created.
+_ad_group_name_counter = 0
+
 
 # --------------------------------------------------------------------------
-# Amazon test steps  (filled in as the HTML of each section is provided)
+# Amazon test steps
 # --------------------------------------------------------------------------
 def test_amazon_general_info(page: Page):
     """TEST 4-16: campaign creation, General Info step, Amazon advertiser grid."""
@@ -100,9 +104,8 @@ def test_amazon_general_info(page: Page):
     expect(grid.locator("div.dx-pager")).to_be_visible()
     ok(14, f"advertiser grid visible with {rows.count()} rows and pager")
 
-    # The same advertiser name exists for multiple DSPs (Samsung_ES_Starcom is on
-    # DV360, Amazon and TTD). Search to narrow the grid, then select the row that
-    # has BOTH the Amazon badge (column 2) and the advertiser name (column 3).
+    # Samsung_ES_Starcom exists under multiple DSPs (DV360, Amazon, TTD), so
+    # narrow via search then match on both the Amazon badge and the name.
     search_box = grid.locator("input[aria-label='Search in the data grid']")
     search_box.fill(AMAZON_ADVERTISER)
     adv_row = (
@@ -116,8 +119,8 @@ def test_amazon_general_info(page: Page):
     expect(adv_row).to_have_attribute("aria-selected", "true")
     ok(15, f"advertiser '{AMAZON_ADVERTISER}' (Amazon) selected in the grid")
 
-    # Side panel updated: DSP card + Brand. The exact Amazon DSP display name in
-    # the sidebar is not yet confirmed, so for now we assert the Brand only.
+    # The sidebar's exact Amazon DSP display name isn't confirmed yet, so for
+    # now we only assert the Brand.
     dsp_card = aside.locator("div.aside-card--dsp")
     expect(dsp_card).to_be_visible()
     brand_row = dsp_card.locator("p", has_text="Brand")
@@ -135,11 +138,10 @@ def _set_date_range_dialog(page: Page, date_from: datetime.date, date_to: dateti
     end_input = dialog.locator("input[formcontrolname='endDate']")
     start_input.fill(date_from.strftime(DATE_FMT))
     end_input.fill(date_to.strftime(DATE_FMT))
-    end_input.press("Tab")  # force blur so the date-range input commits/parses the typed value
-    # Catch silent parsing failures here instead of a downstream server validation error.
-    # The field re-renders the parsed date in its own locale format (e.g. "1/7/2026"
-    # for the value we filled as "07/01/2026"), so just check it isn't empty rather
-    # than comparing the exact display string.
+    end_input.press("Tab")  # force blur so the date-range input commits/parses the value
+    # Catch silent parsing failures here rather than downstream at the server.
+    # The field re-renders in its own locale format (e.g. "07/01/2026" becomes
+    # "1/7/2026"), so just check it isn't empty instead of matching the string.
     assert start_input.input_value().strip(), (
         "Start date field is empty (the typed value was not accepted/parsed by the date-range input)"
     )
@@ -177,9 +179,8 @@ def test_amazon_insertion_orders(page: Page, date_from: datetime.date, date_to: 
     fill_and_verify(io_form, "purchaseOrderNumber", purchase_order)
     ok(19, f"Purchase Order Number filled with '{purchase_order}' at IO level")
 
-    # TEST 20: "Media Type" (primaryInventoryTypes) confirmed removed from the
-    # Insertion Order form (regression check — this field used to require
-    # selecting "Display" here; it no longer appears anywhere on this step).
+    # Regression check: "Media Type" (primaryInventoryTypes) used to be
+    # required here (selecting "Display") but should no longer appear at all.
     expect(io_form.locator("mat-select[formcontrolname='primaryInventoryTypes']")).to_have_count(0)
     expect(io_form.get_by_text("Media Type", exact=False)).to_have_count(0)
     ok(20, "'Media Type' confirmed removed from the Insertion Order form")
@@ -207,12 +208,12 @@ def test_amazon_insertion_orders(page: Page, date_from: datetime.date, date_to: 
     manual_radio.click()
     expect(manual_radio).to_be_checked()
     # Selecting MANUAL triggers a debounced re-render of the Budget & Flights
-    # section: let it settle before grabbing locators inside it.
+    # section — let it settle before grabbing locators inside it.
     page.wait_for_timeout(1500)
     ok(24, "Optimization Strategy = 'Manage budget manually' (MANUAL) selected")
 
-    # TEST 25: IO-level Start/End Date — only rendered when budget allocation is
-    # AUTO; hidden entirely in MANUAL mode. Set if present, skip otherwise.
+    # IO-level dates only render in AUTO mode, hidden in MANUAL — set if
+    # present, skip otherwise.
     io_date_btn = io_form.locator("button[matsuffix]").first
     if io_date_btn.count() > 0 and io_date_btn.is_visible():
         io_date_btn.click()
@@ -268,7 +269,9 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     ok(30, "navigated to Line Items, Ad Group form visible")
 
     # TEST 31: Ad Group Name
-    ad_group_name = f"Test AG Amazon - {int(time.time())}"
+    global _ad_group_name_counter
+    _ad_group_name_counter += 1
+    ad_group_name = f"AG {_ad_group_name_counter} - {AMAZON_CLIENT} - {int(time.time())}"
     fill_and_verify(ad_form, "name", ad_group_name)
     ok(31, f"Ad Group Name = '{ad_group_name}'")
 
@@ -300,9 +303,9 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     select_mat_option(page, "deliveryProfile", "ASAP")
     ok(38, "Delivery Profile = 'ASAP' selected and verified")
 
-    # TEST 39: Viewability Tier = Greater than 40 percent
-    select_mat_option(page, "viewabilityTier", "Greater than 40 percent")
-    ok(39, "Viewability Tier = 'Greater than 40 percent' selected and verified")
+    # TEST 39: Viewability Tier = 40% and greater
+    select_mat_option(page, "viewabilityTier", "40% and greater")
+    ok(39, "Viewability Tier = '40% and greater' selected and verified")
 
     # TEST 40: Video Completion Tier = Greater than 10%
     select_mat_option(page, "videoCompletionTier", "Greater than 10%")
@@ -316,8 +319,8 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     select_mat_option(page, "creativeRotationType", "Random")
     ok(42, "Creative Rotation = 'Random' selected and verified")
 
-    # TEST 43: Advertised product categories = "Black History Month" via the
-    # "Manage" dialog (a plain text input does not exist for this field).
+    # This field has no plain text input, so categories are set via the
+    # "Manage" dialog instead.
     categories_section = ad_form.locator("section").filter(
         has=page.locator("span.text-sm.font-semibold", has_text="Advertised product categories")
     )
@@ -326,8 +329,8 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     expect(cat_dialog).to_be_visible(timeout=10000)
     # Categories load collapsed: expand "Holiday, Events" first.
     cat_dialog.locator("button[aria-label='Toggle Holiday, Events']").click()
-    # Then click the leaf row's "Include" button (clicking the row text does
-    # nothing — only the per-row Include button toggles selection).
+    # Clicking the row text does nothing — only the per-row Include button
+    # actually toggles selection.
     leaf_row = cat_dialog.locator("mat-nested-tree-node[aria-level='2']").filter(
         has=page.get_by_text("Black History Month", exact=True)
     )
@@ -337,8 +340,8 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     expect(cat_dialog).not_to_be_visible()
     expect(categories_section.locator("text=No categories selected.")).not_to_be_visible()
     ok(43, "Advertised product categories = 'Black History Month' selected via Manage dialog")
-    # Let any debounced re-render triggered by the categories dialog settle
-    # before touching Budget/Dates below (same pattern seen elsewhere in this app).
+    # Let the categories dialog's debounced re-render settle before touching
+    # Budget/Dates below (same pattern seen elsewhere in this app).
     page.wait_for_timeout(1500)
 
     # TEST 44: Budget = 1 (EUR, Lifetime) — click "Add Budget" to create the row first
@@ -351,9 +354,8 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     fill_and_verify(budgets_section, "budgetValue", "1")
     ok(44, "Ad Group Budget = 1 (EUR, Lifetime)")
 
-    # TEST 45: Ad Group dates (Start = tomorrow, End = day after) via edit_calendar dialog.
-    # Set last (after Budget): adding a budget row can trigger a debounced
-    # re-render that wipes an earlier date selection, so verify + retry once.
+    # Set dates last: adding a budget row can trigger a debounced re-render
+    # that wipes an earlier date selection, so verify and retry once.
     dates_section = ad_form.locator("section").filter(
         has=page.locator("span.text-base.font-bold", has_text="Dates")
     )
@@ -366,10 +368,9 @@ def test_amazon_line_items(page: Page, date_from: datetime.date, date_to: dateti
     expect(start_date_input).not_to_have_value("")
     ok(45, f"Ad Group dates set: {date_from} → {date_to}")
 
-    # Persistence guard: wait for any trailing debounced re-render to settle,
-    # then re-verify Budget and Dates weren't silently wiped afterward (the
-    # server has previously rejected campaigns with these fields empty even
-    # though they read back as filled immediately after being set).
+    # Belt-and-suspenders: wait for any trailing re-render, then re-check that
+    # Budget and Dates weren't silently wiped (the server has rejected
+    # campaigns before where these fields looked filled but weren't).
     page.wait_for_timeout(1500)
     if not budget_input.input_value().strip():
         fill_and_verify(budgets_section, "budgetValue", "1")
@@ -394,9 +395,8 @@ def test_amazon_recap(page: Page):
         pass
     ok(46, "navigated to the Recap step")
 
-    # TEST 41: click "Start campaign".
-    # WARNING: this is a consequential action (it actually LAUNCHES the Amazon
-    # campaign) and is hard to undo. The click happens ONLY if the user types 'yes'.
+    # WARNING: this actually launches the Amazon campaign and can't be undone —
+    # it only clicks through if you type 'yes' below.
     start_btn = page.locator("button.mdc-button", has_text="Start campaign")
     expect(start_btn).to_be_visible(timeout=10000)
     answer = input(
@@ -437,8 +437,8 @@ def main():
         storage_state = str(AUTH_FILE)
 
         print("\nOpening the browser with the SSO session...")
-        # Maximize the window and use the real screen size (no_viewport=True):
-        # a small viewport makes the responsive layout collapse fields.
+        # no_viewport=True uses the real screen size — a small viewport
+        # collapses the responsive layout's fields.
         browser = p.chromium.launch(headless=False, args=["--start-maximized"])
         context = browser.new_context(storage_state=storage_state, no_viewport=True)
         page = context.new_page()

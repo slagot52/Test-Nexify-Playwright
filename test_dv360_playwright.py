@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-PLAYWRIGHT TEST - publicisnexify.com  (with SSO)
+PLAYWRIGHT TEST - publicisnexify.com (with SSO)
 ================================================
-The site requires SSO login (e.g. Microsoft / Google / Okta). Playwright
-cannot fill those forms automatically, so we use the "save the session once,
-reuse it forever" strategy:
+This site needs SSO login (Microsoft / Google / Okta), which Playwright can't
+fill in automatically. So we save the session once and reuse it:
 
-  1. First run        ->  opens a VISIBLE browser, you do the SSO login by
-                          hand; the session is then saved to auth_state.json.
-  2. Subsequent runs  ->  loads auth_state.json and skips the login.
+  1. First run   -> opens a visible browser, you log in by hand, and the
+                     session gets saved to auth_state.json.
+  2. Later runs   -> loads auth_state.json and skips login entirely.
 
 Run with:        python test_dv360_playwright.py
 Force new login: delete auth_state.json and run again.
@@ -30,7 +29,11 @@ from playwright.sync_api import Page, expect, sync_playwright
 AUTH_FILE = Path(__file__).parent / "auth_state.json"
 BASE_URL = "https://publicisnexify.com"
 TARGET_URL = BASE_URL + "/"
-DATE_FMT = "%m/%d/%Y"  # format expected by the mat-datepicker (MM/DD/YYYY)
+DATE_FMT = "%m/%d/%Y"  # mat-datepicker expects MM/DD/YYYY
+
+# Insertion Order Display Name counter: "IO x - Client - Unix Date". Resets to
+# 1 each script run (one campaign per run) and increments per IO created.
+_io_display_name_counter = 0
 
 
 # --------------------------------------------------------------------------
@@ -42,27 +45,20 @@ def ok(number, message):
 
 
 def select_mat_option(page: Page, form_control_name: str, option_name: str):
-    """
-    Open a <mat-select> identified by its formcontrolname and select the
-    option with the exact given text, then verify the field shows the value.
+    """Open a mat-select by formcontrolname, pick the exact option, verify it stuck.
 
-    Important details handled here:
-      - click(force=True): the floating mat-label intercepts pointer events on
-        the trigger, but the mat-select still handles the click and opens the
-        panel.
-      - options are rendered in the CDK overlay (outside the form), inside the
-        panel with id "<select-id>-panel": we scope to that panel to avoid
-        collisions with other dropdowns.
-      - get_by_role(..., exact=True): avoids partial matches (e.g. "CPM" vs "VCPM").
+    Uses a force-click (the floating label blocks normal clicks), scopes to
+    the select's own overlay panel (avoids clashing with other open
+    dropdowns), and matches the option name exactly so e.g. "CPM" doesn't
+    also match "VCPM".
     """
     select = page.locator(f"mat-select[formcontrolname='{form_control_name}']")
     expect(select).to_be_visible()
     select.scroll_into_view_if_needed()
     select_id = select.get_attribute("id")
 
-    # Open the panel with retry: sometimes the click does not register (timing
-    # after a previous overlay closes). From the second attempt we use the
-    # keyboard (focus + Enter), which is more reliable than a click for mat-select.
+    # Retry opening the panel: a click can miss right after another overlay
+    # closes. From the 2nd attempt, use the keyboard instead — more reliable.
     for attempt in range(4):
         if attempt == 0:
             select.click(force=True)
@@ -73,15 +69,13 @@ def select_mat_option(page: Page, form_control_name: str, option_name: str):
             expect(select).to_have_attribute("aria-expanded", "true", timeout=2000)
             break
         except AssertionError:
-            # reset any intermediate state before retrying
-            page.keyboard.press("Escape")
+            page.keyboard.press("Escape")  # clear any stuck state before retrying
             continue
     else:
         raise AssertionError(f"Could not open the mat-select '{form_control_name}'")
 
-    # Use .first to handle the rare case where Angular leaves a ghost
-    # (invisible) panel in the DOM alongside the new visible one — both share
-    # the same generated id, causing a strict-mode violation.
+    # .first guards against a rare ghost panel Angular leaves behind that
+    # shares the same id as the real, visible one.
     panel = page.locator(f"#{select_id}-panel").first
     expect(panel).to_be_visible()
 
@@ -90,8 +84,8 @@ def select_mat_option(page: Page, form_control_name: str, option_name: str):
     option.scroll_into_view_if_needed()
     option.click()
 
-    # Verify the value was applied; a retry covers the cases where the first
-    # click only highlights the option without confirming it.
+    # Retry once: the first click sometimes only highlights the option
+    # without confirming it.
     try:
         expect(select).to_contain_text(option_name, timeout=3000)
     except AssertionError:
@@ -102,20 +96,15 @@ def select_mat_option(page: Page, form_control_name: str, option_name: str):
 
 
 def select_all_multi(page: Page, form_control_name: str, expected_text: str):
-    """
-    Open a <mat-select multiple> with the matselectall directive and select all
-    options. Idempotent: clicks "Select all" only if some option is still
-    unselected, so the final state is always "all selected" even on repeated
-    runs (clicking an already-active select-all would deselect everything).
-    """
+    """Open a multi-select and check "Select all" — but only if it isn't
+    already checked, since clicking it again would deselect everything."""
     select = page.locator(f"mat-select[formcontrolname='{form_control_name}']")
     expect(select).to_be_visible()
     select_id = select.get_attribute("id")
     select.click(force=True)
 
-    # Use .first to handle the rare case where Angular leaves a ghost
-    # (invisible) panel in the DOM alongside the new visible one — both share
-    # the same generated id, causing a strict-mode violation.
+    # .first guards against a rare ghost panel Angular leaves behind that
+    # shares the same id as the real, visible one.
     panel = page.locator(f"#{select_id}-panel").first
     expect(panel).to_be_visible()
     select_all_opt = panel.locator("mat-option[matselectalloption]")
@@ -141,10 +130,8 @@ def fill_and_verify(scope, form_control_name: str, value: str):
 # SSO session handling
 # --------------------------------------------------------------------------
 def manual_login(playwright):
-    """
-    Open a visible window and wait for the user to complete the SSO login,
-    then save the storage state (cookies + localStorage) to auth_state.json.
-    """
+    """Wait for the user to log in via SSO, then save the session
+    (cookies + localStorage) to auth_state.json."""
     print("\nNo saved session found.")
     print("The browser will open: complete the SSO login manually.")
     print("Once you are INSIDE the site (homepage loaded), press ENTER here.")
@@ -317,10 +304,8 @@ def test_global_setup(page: Page):
     ok(22, "Frequency Cap=1, per every=1, Unit=Week set and verified")
 
     select_mat_option(page, "targetObjectiveType", "Brand awareness")
-    # Changing "Campaign Goal Type" reloads (in a DEBOUNCED, client-side way) the
-    # options of "Target's Objective Type" and clears its value. We wait for this
-    # late reset to finish BEFORE selecting CPM, otherwise our choice would be
-    # overwritten by the reload.
+    # Changing "Campaign Goal Type" triggers a debounced reload of "Target's
+    # Objective Type" that clears its value — wait it out before picking next.
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(3000)
     ok(23, "Campaign Goal Type = 'Brand awareness' selected and verified")
@@ -328,10 +313,8 @@ def test_global_setup(page: Page):
     select_all_multi(page, "creativeTypes", "Display")
     ok(24, "Creative Types: 'Select all' selected and verified")
 
-    # TEST 25: 'performanceGoalType' (mapped to 'campaignGoal' on the API side) is
-    # the field the server reported as missing. The 'mat-mdc-select-empty' class
-    # authoritatively indicates whether the control is empty: we re-select CPM
-    # until the field stays populated (max 3 attempts).
+    # performanceGoalType (aka campaignGoal server-side) sometimes resets
+    # itself right after being set — retry until it actually sticks.
     perf_select = page.locator("mat-select[formcontrolname='performanceGoalType']")
 
     def _perf_empty():
@@ -345,8 +328,8 @@ def test_global_setup(page: Page):
     assert not _perf_empty(), "performanceGoalType stays empty after the attempts"
     ok(25, "Target's Objective Type = 'CTR' selected, populated and stable")
 
-    # type="number" inputs need a Tab/blur to commit the value to Angular's
-    # reactive form model; without it the server receives 0 or empty.
+    # Number inputs need a Tab/blur to commit into Angular's form model —
+    # skip it and the server sees 0 or empty.
     perf_val = gs_form.locator("input[formcontrolname='performanceGoalPercentageMicros']")
     expect(perf_val).to_be_visible()
     perf_val.fill("1")
@@ -363,10 +346,8 @@ def test_global_setup(page: Page):
 
 def test_insertion_orders(page: Page):
     """TEST 27-37: Step 3 Insertion Orders form."""
-    # From Global Setup we move to the Insertion Orders step with the footer
-    # "Next" button (the URL does not change, it's an Angular step).
-    # The first click may just confirm/blur the last filled field without
-    # navigating: we re-click "Next" until the IO form appears.
+    # "Next" moves between Angular steps without changing the URL. The first
+    # click can just blur the last field instead of navigating, so retry.
     footer = page.locator("div.step-footer")
     io_form = page.locator("app-dv360-insertion-orders form")
     for _ in range(3):
@@ -381,16 +362,16 @@ def test_insertion_orders(page: Page):
         page.locator("span.pb-5.text-4xl.font-bold", has_text="create the Insertion Orders")
     ).to_be_visible()
 
-    io_display_name = f"US 1 - LOREAL - Display Ads - {int(time.time())}"
+    global _io_display_name_counter
+    _io_display_name_counter += 1
+    io_display_name = f"IO {_io_display_name_counter} - L'Oreal - {int(time.time())}"
     fill_and_verify(io_form, "displayName", io_display_name)
     ok(27, f"Display Name filled with '{io_display_name}'")
 
     select_mat_option(page, "insertionOrderType", "Standard")
     ok(28, "Insertion Order Type = 'Standard' selected and verified")
 
-    # TEST 29: Date range (start = tomorrow, end = day after tomorrow).
-    # Note: dateFrom/dateTo also exist in Global Setup, so here we stay within
-    # io_form to target the right pair.
+    # dateFrom/dateTo also exist in Global Setup, so scope to io_form here.
     today = datetime.date.today()
     io_date_from = today + datetime.timedelta(days=1)
     io_date_to = today + datetime.timedelta(days=2)
@@ -407,8 +388,8 @@ def test_insertion_orders(page: Page):
     fill_and_verify(io_form, "purchaseOrder", purchase_order)
     ok(30, f"Purchase Order = '{purchase_order}'")
 
-    # TEST 31: Budget = 1 (numeric field with € suffix; the moneyinput directive
-    # may reformat the value, so we just check it contains "1").
+    # The moneyinput directive may reformat the value, so just check it
+    # still contains "1" instead of an exact match.
     budget_field = io_form.locator("input[formcontrolname='budget']")
     expect(budget_field).to_be_visible()
     budget_field.fill("1")
@@ -429,24 +410,20 @@ def test_insertion_orders(page: Page):
     select_mat_option(page, "pacingType", "Ahead")
     ok(34, "Pacing Type = 'Ahead' selected and verified")
 
-    # TEST 35: KPI Type = CPM
-    # The site renamed this option from plain "CPM" to the full descriptive
-    # label "Cost per thousand impressions (CPM)" (exact match is required).
+    # NOTE: label says CTR — option names must match exactly, and the site
+    # uses full descriptive labels now rather than plain acronyms.
     select_mat_option(page, "kpiType", "Impression click through rate (CTR)")
     ok(35, "KPI Type = 'CPM' selected and verified")
 
-    # TEST 36: KPI Target = 1
-    # With KPI Type = CPM the "KPI Target" field becomes numeric (€) with a
-    # different formcontrolname than 'kpiString': we locate it by accessible
-    # label, so the locator stays valid regardless of the variant.
+    # KPI Target's formcontrolname changes with KPI Type, so locate it by
+    # accessible label instead — stays valid across variants.
     kpi_target = io_form.get_by_role("spinbutton", name="KPI Target")
     expect(kpi_target).to_be_visible()
     kpi_target.fill("1")
     assert kpi_target.input_value() == "1", f"KPI Target expected '1', got '{kpi_target.input_value()}'"
     ok(36, "KPI Target = 1 entered and verified")
 
-    # TEST 37: checkbox "Unlimited up to the campaign's frequency cap" checked.
-    # We check it only if it isn't already, then verify the final state.
+    # Check the box only if needed, then verify it ends up checked.
     unlimited_row = io_form.locator(
         "div.flex.items-center.gap-3",
         has_text="Unlimited up to the campaign's frequency cap",
@@ -459,11 +436,8 @@ def test_insertion_orders(page: Page):
 
 
 def test_sidebar_sync(page: Page):
-    """
-    TEST 38: the sidebar is updated and shows the same data as the main form.
-    Values are read dynamically from the form (not hardcoded) and compared with
-    what is shown in the aside.
-    """
+    """TEST 38: sidebar mirrors the form. Reads values from the form itself
+    (not hardcoded) and compares them to what the aside shows."""
     io_form = page.locator("app-dv360-insertion-orders form")
     aside = page.locator("aside.campaign-aside")
 
@@ -570,8 +544,7 @@ def test_line_items_form(page: Page):
     select_mat_option(page, "containsEuPoliticalAds", "Does not contain EU political advertising")
     ok(51, "EU Political Ads = 'Does not contain EU political advertising' selected")
 
-    # TEST 52: "Maximize Reach" removed from Bid strategy options (regression
-    # check for the DV360 bid-strategy cleanup).
+    # Regression check: "Maximize Reach" should no longer be a bid-strategy option.
     bid_select = li_form.locator("mat-select[formcontrolname='bidStrategyType']")
     expect(bid_select).to_be_visible()
     bid_select.scroll_into_view_if_needed()
@@ -627,8 +600,8 @@ def test_line_items_form(page: Page):
     expect(add_fee_btn).to_be_visible()
     add_fee_btn.scroll_into_view_if_needed()
 
-    # Open the menu with retry: a plain click sometimes does not open the
-    # mat-menu, so from the second attempt we use the keyboard (focus + Enter).
+    # Retry: a plain click sometimes doesn't open the menu, so fall back to
+    # the keyboard (focus + Enter).
     for attempt in range(4):
         if attempt == 0:
             add_fee_btn.click(force=True)
@@ -655,10 +628,8 @@ def test_line_items_form(page: Page):
     footer.locator("button.mdc-button", has_text="Next").click()
     ok(60, "click on 'Next' in the footer performed")
 
-    # TEST 61: click "Start campaign".
-    # WARNING: this is a consequential action (it actually LAUNCHES the campaign)
-    # and is hard to undo. For safety we require explicit confirmation from the
-    # terminal: the click happens ONLY if the user types 'yes'.
+    # WARNING: this actually launches the campaign and can't be undone —
+    # it only clicks through if you type 'yes' below.
     start_btn = page.locator("button.mdc-button", has_text="Start campaign")
     expect(start_btn).to_be_visible()
     answer = input(
@@ -667,8 +638,8 @@ def test_line_items_form(page: Page):
     ).strip().lower()
     if answer == "yes":
         start_btn.click()
-        # If the server rejects the data, an activation-errors dialog appears.
-        # Surface its messages as a clear test failure instead of passing silently.
+        # Surface server-side validation errors as a test failure instead of
+        # passing silently.
         errors_dialog = page.locator("app-campaign-activation-errors-dialog")
         appeared = False
         try:
@@ -700,9 +671,8 @@ def main():
         storage_state = str(AUTH_FILE)
 
         print("\nOpening the browser with the SSO session...")
-        # Maximize the window and use the real screen size (no_viewport=True):
-        # a small viewport makes the responsive layout collapse fields, which can
-        # make them zero-size / not clickable.
+        # no_viewport=True uses the real screen size — a small viewport
+        # collapses the responsive layout into unclickable, zero-size fields.
         browser = p.chromium.launch(headless=False, args=["--start-maximized"])
         context = browser.new_context(storage_state=storage_state, no_viewport=True)
         page = context.new_page()
