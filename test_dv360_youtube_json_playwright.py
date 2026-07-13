@@ -669,11 +669,12 @@ def fill_li_youtube_basics(page: Page, li_form, li_name: str, li_type: str):
         page.wait_for_timeout(1500)
     assert yt_marker.count() > 0, "Line item type did not stay YouTube after retries"
 
-    select_mat_option(page, "budgetAllocationType", "Unlimited")
+    li_form.locator("input[formcontrolname='budget']").fill("1")
+    select_mat_option(page, "budgetAllocationType", "Fixed")
     select_mat_option(page, "pacingPeriod", "Flight")
     select_mat_option(page, "pacingType", "ASAP")
     select_mat_option(page, "containsEuPoliticalAds", "Does not contain EU political advertising")
-    ok("li-basics", "Budget allocation/Pacing/EU Political Ads set")
+    ok("li-basics", "Budget = 1.00, Budget allocation = Fixed, Pacing/EU Political Ads set")
 
 
 def set_ag_bid_value(ag_container):
@@ -807,7 +808,8 @@ def fill_li_video_basics(page: Page, li_form, li_name: str, li_type: str = "LINE
         flight_cb_root.click()
     expect(flight_cb).to_be_checked()
 
-    select_mat_option(page, "budgetAllocationType", "Unlimited")
+    li_form.locator("input[formcontrolname='budget']").fill("1")
+    select_mat_option(page, "budgetAllocationType", "Fixed")
     select_mat_option(page, "pacingPeriod", "Flight")
     select_mat_option(page, "pacingType", "ASAP")
 
