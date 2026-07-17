@@ -10,3 +10,13 @@ __pycache__/
 
 # Local editor/harness config
 .claude/
+
+# Reference copy of the Nexify frontend source (context only, not part of this repo)
+nexify-frontend-main/
+
+# OS / editor junk
+.DS_Store
+.obsidian/
+
+# Local run logs
+*.log

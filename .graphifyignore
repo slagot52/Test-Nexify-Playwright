@@ -1,0 +1,3 @@
+# Allow graphify to scan nexify-frontend-main even though .gitignore excludes it
+# (it's a reference copy excluded from git, but valid for knowledge graph extraction)
+!nexify-frontend-main/

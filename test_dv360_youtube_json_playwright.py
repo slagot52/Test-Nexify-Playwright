@@ -346,19 +346,15 @@ def add_geo_region(page: Page, li_form, button_name: str, dialog_title: str, ids
     search_box = dialog.get_by_placeholder("Write to filter")
 
     for gid, name in ids_and_names:
-        captured = []
-        page.on(
-            "response",
-            lambda r, c=captured: c.append(r) if "/dsp/dv360/regions" in r.url.lower() else None,
-        )
-        search_box.fill(name)
-        search_box.press("Enter")
-        for _ in range(20):
-            if captured:
-                break
-            page.wait_for_timeout(250)
-        assert captured, f"Did not observe the geo region API response for query '{name}'"
-        results = captured[-1].json()["results"]
+        # expect_response attaches the waiter BEFORE the search fires (no
+        # register-then-poll race) and waits on a real 15s timeout instead of
+        # the old ~5s poll, which a slow /regions response could outrun.
+        with page.expect_response(
+            lambda r: "/dsp/dv360/regions" in r.url.lower(), timeout=15000
+        ) as resp_info:
+            search_box.fill(name)
+            search_box.press("Enter")
+        results = resp_info.value.json()["results"]
         idx = next((i for i, item in enumerate(results) if item["id"] == gid), None)
         assert idx is not None, f"JSON geo id {gid} ('{name}') not found in live results: {results}"
         row = grid.locator("tr.dx-data-row").nth(idx)
@@ -507,18 +503,13 @@ def add_ag_channels_via_placements(page: Page, ag_container, channel_ids: list, 
     # before any sanitize call resolves, so waiting on that text alone
     # matches the stale zero instantly - intercept the real API response
     # instead of trusting DOM text timing.
-    captured = []
-    page.on(
-        "response",
-        lambda r, c=captured: c.append(r) if "placements/sanitize" in r.url else None,
-    )
-    dialog.get_by_role("button", name="Sanitize").click()
-    for _ in range(60):
-        if captured:
-            break
-        page.wait_for_timeout(500)
-    assert captured, "Did not observe the placements/sanitize API response"
-    body = captured[-1].json()
+    # expect_response attaches the waiter before the Sanitize click (no
+    # register-then-poll race); 30s window for a slow sanitize call.
+    with page.expect_response(
+        lambda r: "placements/sanitize" in r.url, timeout=30000
+    ) as resp_info:
+        dialog.get_by_role("button", name="Sanitize").click()
+    body = resp_info.value.json()
     resolved_n = len(body.get("channels", []))
     if resolved_n != len(channel_ids):
         print(f"NOTE: {resolved_n}/{len(channel_ids)} YouTube channel ids resolved live ({mode}) - the rest no longer exist")
@@ -644,6 +635,42 @@ LI_TYPE_LABELS = {
 }
 
 
+def fill_positive_amount(page: Page, scope, form_control_name: str, label: str, value: str = "1"):
+    """Fill a required numeric line-item control (reactive form) and prove the
+    value actually committed as a positive number > 0.
+
+    DV360 DSP validation rejects the campaign when:
+      - Budget allocation = Fixed but no max amount is provided, and
+      - Bid strategy = Fixed Bid but the Bid amount (CPM) is not > 0.
+    Both ride the same silent-drop risk as the ad-group bid: 'bidAmount' is
+    disable()d until 'Fixed bid' is selected, so a fill that lands before the
+    control is enabled is dropped and the payload then ships bidAmountMicros
+    '0' (or omits maxAmount entirely). Wait for the field to be enabled, fill,
+    then read back and re-fill until a positive value sticks - failing loudly
+    here instead of at the DSP."""
+    field = scope.locator(f"input[formcontrolname='{form_control_name}']")
+    expect(field).to_be_visible()
+    expect(field).to_be_enabled()  # bidAmount stays disabled until 'Fixed bid' is chosen
+    actual = ""
+    for attempt in range(3):
+        field.fill(value)
+        field.press("Tab")
+        page.wait_for_timeout(200)
+        actual = (field.input_value() or "").strip()
+        try:
+            if actual != "" and float(actual) > 0:
+                return field
+        except ValueError:
+            pass
+        print(f"NOTE: '{label}' ({form_control_name}) did not commit a positive value "
+              f"(got '{actual}'), re-filling (attempt {attempt + 1})")
+        page.wait_for_timeout(400)
+    raise AssertionError(
+        f"'{label}' ({form_control_name}) did not commit a positive number > 0 - "
+        f"the DSP would reject the campaign (got '{actual}')"
+    )
+
+
 def fill_li_youtube_basics(page: Page, li_form, li_name: str, li_type: str):
     """Minimal required non-targeting fields for a YouTube-type line item -
     name, type, budget allocation/pacing, EU political ads. Bid strategy is
@@ -669,7 +696,7 @@ def fill_li_youtube_basics(page: Page, li_form, li_name: str, li_type: str):
         page.wait_for_timeout(1500)
     assert yt_marker.count() > 0, "Line item type did not stay YouTube after retries"
 
-    li_form.locator("input[formcontrolname='budget']").fill("1")
+    fill_positive_amount(page, li_form, "budget", "Budget")
     select_mat_option(page, "budgetAllocationType", "Fixed")
     select_mat_option(page, "pacingPeriod", "Flight")
     select_mat_option(page, "pacingType", "ASAP")
@@ -679,9 +706,52 @@ def fill_li_youtube_basics(page: Page, li_form, li_name: str, li_type: str):
 
 def set_ag_bid_value(ag_container):
     """Ad-group Bid value is a plain ngModel input (no formcontrolname) -
-    Bid strategy TYPE itself is enforced/disabled per line item type."""
-    field_by_label(ag_container, "Bid value").fill("1")
-    ok("ag-bid-value", "Bid value = 1")
+    Bid strategy TYPE itself is enforced/disabled per line item type.
+
+    GUARD (confirmed live DSP bug, both VIEW and REACH go through here):
+    onBidValueChange() drops the typed value unless enforcedBidType() has
+    already resolved ("if (!enforcedType) return"). When it's dropped the
+    payload ships youtubeAndPartnersBid with a `type` but no `value`, and the
+    DSP then float()s that None -> "float() argument must be a string or a
+    real number, not 'NoneType'". The read-only "Bid strategy" select renders
+    the enforced type once resolved and a "—" placeholder until then, so wait
+    for a real type there before filling, then read the value back and re-fill
+    until it sticks - failing loudly here instead of at the DSP."""
+    page = ag_container.page
+    bid_field = field_by_label(ag_container, "Bid value").first
+
+    # 1. Enforced bid type must be resolved first, else the value is dropped.
+    bid_strategy = ag_container.locator("mat-form-field").filter(
+        has=page.locator("mat-label", has_text=re.compile(r"^Bid strategy$"))
+    ).locator("mat-select")
+    for _ in range(6):
+        text = (bid_strategy.inner_text() or "").strip()
+        if text and text != "—":
+            break
+        page.wait_for_timeout(500)
+    else:
+        raise AssertionError(
+            "Ad-group 'Bid strategy' never resolved an enforced bid type - "
+            "Bid value would be silently dropped from the payload"
+        )
+
+    # 2. Commit the value. The FIRST onBidValueChange for a freshly-activated
+    #    ad group can fire before enforcedBidType() has propagated (dropping the
+    #    value even though the "Bid strategy" select already shows the type), so
+    #    fill TWICE with a settle between - the second fill lands after the model
+    #    is ready and commits. Reading the DOM input value back can't prove the
+    #    model committed (one-way [ngModel]='bidValueView' keeps showing "1" even
+    #    on a dropped value), so the AUTHORITATIVE check is the submit-time
+    #    payload guard in test_finish_and_submit (find_missing_ag_bid_values).
+    for _ in range(2):
+        bid_field.fill("1")
+        bid_field.press("Tab")
+        page.wait_for_timeout(400)
+    assert (bid_field.input_value() or "").strip() == "1", (
+        "Ad-group Bid value did not even reach the DOM input"
+    )
+
+    ok("ag-bid-value", "Bid value = 1 (double-filled after enforced type resolved; verified at submit)")
 
 
 def select_li_tab(page: Page, index: int):
@@ -808,7 +878,7 @@ def fill_li_video_basics(page: Page, li_form, li_name: str, li_type: str = "LINE
         flight_cb_root.click()
     expect(flight_cb).to_be_checked()
 
-    li_form.locator("input[formcontrolname='budget']").fill("1")
+    fill_positive_amount(page, li_form, "budget", "Budget")
     select_mat_option(page, "budgetAllocationType", "Fixed")
     select_mat_option(page, "pacingPeriod", "Flight")
     select_mat_option(page, "pacingType", "ASAP")
@@ -824,7 +894,7 @@ def fill_li_video_basics(page: Page, li_form, li_name: str, li_type: str = "LINE
     select_mat_option(page, "freqUnit", "Minute")
     select_mat_option(page, "containsEuPoliticalAds", "Does not contain EU political advertising")
     select_mat_option(page, "bidStrategyType", "Fixed bid")
-    li_form.locator("input[formcontrolname='bidAmount']").fill("1")
+    fill_positive_amount(page, li_form, "bidAmount", "Bid amount (CPM)")
     select_mat_option(page, "partnerRevenueModelMarkupType", "Total Media Cost")
     li_form.locator("input[formcontrolname='partnerRevenueModelMarkupValue']").fill("0")
     ok("li-basics", f"Line Item '{li_name}' basics filled (type='{LI_TYPE_LABELS[li_type]}')")
@@ -843,24 +913,19 @@ def add_li_list_dialog(page: Page, li_form, section_text: str, button_name: str,
     add_btn.scroll_into_view_if_needed()
     expect(add_btn).to_be_visible()
 
-    captured = []
-    page.on(
-        "response",
-        lambda r, c=captured: c.append(r) if api_url_fragment in r.url else None,
-    )
-    add_btn.click()
+    # The first page of results loads on dialog OPEN, so wrap the button click
+    # in expect_response to capture it without the register-then-poll race.
+    with page.expect_response(
+        lambda r: api_url_fragment in r.url, timeout=15000
+    ) as resp_info:
+        add_btn.click()
 
     dialog = page.locator("mat-dialog-container")
     expect(dialog).to_be_visible()
     grid = dialog.locator("dx-data-grid")
     expect(grid.locator("tr.dx-data-row").first).to_be_visible()
 
-    for _ in range(20):
-        if captured:
-            break
-        page.wait_for_timeout(250)
-    assert captured, f"Did not observe the {api_url_fragment} API response"
-    body = captured[-1].json()
+    body = resp_info.value.json()
     items = body if isinstance(body, list) else body.get("results", body.get("deals", []))
     live_by_id = {str(item["id"]): item.get("name", str(item["id"])) for item in items}
 
@@ -872,7 +937,6 @@ def add_li_list_dialog(page: Page, li_form, section_text: str, button_name: str,
     has_search = search_box.count() > 0
     for _id, name in matched:
         if has_search:
-            captured.clear()
             search_box.fill(name)
             search_box.press("Enter")
             page.wait_for_timeout(800)
@@ -1002,39 +1066,157 @@ def build_io2_line_items(page: Page, ref: dict):
 # --------------------------------------------------------------------------
 # Finish and submit
 # --------------------------------------------------------------------------
+def find_missing_ag_bid_values(payload: dict) -> list:
+    """Return human-readable descriptions of every YouTube ad group whose
+    bidStrategy.youtubeAndPartnersBid is missing a positive `value`. Such a bid
+    ships `type` without `value` and the DSP crashes on float(None). This walks
+    the exact outgoing payload, so it can't be fooled by the one-way-ngModel DOM
+    false-pass that the per-field set_ag_bid_value check is subject to."""
+    offending = []
+    for dsp in payload.get("dspPayload", []) or []:
+        inner = dsp.get("payload", {}) or {}
+        for io in inner.get("insertionOrders", []) or []:
+            for li in io.get("lineItems", []) or []:
+                for ag in li.get("adGroups", []) or []:
+                    bid = (ag.get("bidStrategy") or {}).get("youtubeAndPartnersBid")
+                    if not bid:
+                        continue
+                    val = bid.get("value")
+                    try:
+                        good = val is not None and str(val).strip() != "" and float(val) > 0
+                    except (TypeError, ValueError):
+                        good = False
+                    if not good:
+                        offending.append(
+                            f"{li.get('displayName') or li.get('name') or '?'} / "
+                            f"ad group '{ag.get('displayName', '?')}' "
+                            f"(type={bid.get('type', '?')}, value={val!r})"
+                        )
+    return offending
+
+
+# Shared state for the session-wide submit guard (install_submit_guard).
+SUBMIT_GUARD_STATE = {"missing": None, "seen": False}
+SUBMIT_PAYLOAD_DUMP = Path("last_submit_payload.json")
+
+
+def install_submit_guard(page: Page):
+    """Install a SESSION-WIDE guard on the campaign submit request, so it fires
+    no matter WHO clicks 'Start campaign' - the script OR you, manually, in the
+    browser (the per-submit guard inside test_finish_and_submit only covered the
+    scripted click). On the outgoing submit POST it:
+      1. dumps the full payload to last_submit_payload.json (so ANY null field,
+         not just the bid value, can be inspected afterwards),
+      2. checks every YouTube ad-group bid carries a positive `value`,
+      3. prints the verdict to the console (visible in the tee'd log), and
+      4. ABORTS the request when a value is missing, so no float(None)-crashing
+         campaign ever reaches the DSP.
+    NOTE: routes only fire while Playwright is pumping its event loop, so a
+    MANUAL click must be awaited via the 'watch' loop in test_finish_and_submit,
+    never a bare input()."""
+    SUBMIT_GUARD_STATE["missing"] = None
+    SUBMIT_GUARD_STATE["seen"] = False
+
+    def _route(route):
+        req = route.request
+        raw = req.post_data or ""
+        if req.method != "POST" or "dspPayload" not in raw:
+            route.continue_()
+            return
+        SUBMIT_GUARD_STATE["seen"] = True
+        try:
+            body = req.post_data_json
+        except Exception:
+            body = None
+        try:
+            pretty = json.dumps(json.loads(raw), indent=2, ensure_ascii=False)
+            SUBMIT_PAYLOAD_DUMP.write_text(pretty, encoding="utf-8")
+            print(f"\n[submit-guard] captured outgoing campaign payload -> {SUBMIT_PAYLOAD_DUMP.name}")
+        except Exception as e:
+            print(f"[submit-guard] could not dump payload: {e}")
+        missing = find_missing_ag_bid_values(body) if body else []
+        if missing:
+            SUBMIT_GUARD_STATE["missing"] = missing
+            print("[submit-guard] BLOCKED submit - YouTube ad groups missing a positive bid `value` "
+                  "(would crash the DSP with float(None)):")
+            for m in missing:
+                print(f"    - {m}")
+            route.abort()
+        else:
+            print("[submit-guard] bid-value check PASSED - every youtubeAndPartnersBid has a positive "
+                  "value; letting the submit through. If the DSP still errors, the null is a DIFFERENT "
+                  f"field - inspect {SUBMIT_PAYLOAD_DUMP.name}.")
+            route.continue_()
+
+    page.route("**/*", _route)
+
+
 def test_finish_and_submit(page: Page):
-    """'Next' from Line Items to Recap, then attempt 'Start campaign'. Same
-    safety gate as every other suite - this actually launches a real
-    campaign on Garnier_ES's live DV360 account, so it only clicks through
-    if you type 'yes'."""
+    """'Next' from Line Items to Recap, then submit. The session-wide guard
+    (install_submit_guard) validates the outgoing payload for BOTH paths:
+      - 'yes'   -> the script clicks 'Start campaign' for you
+      - 'watch' -> you click 'Start campaign' yourself in the browser while this
+                   loop keeps Playwright's event loop alive so the guard fires
+    This actually launches a real campaign on Garnier_ES's live DV360 account."""
     footer = page.locator("div.step-footer")
     footer.locator("button.mdc-button", has_text="Next").click()
     ok("next-to-recap", "click on 'Next' in the footer performed (Line Items -> Recap)")
 
     start_btn = page.locator("button.mdc-button", has_text="Start campaign")
     expect(start_btn).to_be_visible(timeout=15000)
+
     answer = input(
-        "\n>>> 'Start campaign' ACTUALLY LAUNCHES the campaign on Garnier_ES's live "
-        "DV360 account. Type 'yes' to confirm the click (anything else cancels): "
+        "\n>>> 'Start campaign' ACTUALLY LAUNCHES on Garnier_ES's live DV360 account.\n"
+        "    The submit guard will validate the payload and BLOCK it if a bid value is missing.\n"
+        "      yes   -> let the script click it\n"
+        "      watch -> you click it in the browser; I'll validate the outgoing payload\n"
+        "      (anything else cancels)\n"
+        ">>> choice: "
     ).strip().lower()
+
     if answer == "yes":
         start_btn.click()
-        errors_dialog = page.locator("app-campaign-activation-errors-dialog")
-        appeared = False
-        try:
-            expect(errors_dialog).to_be_visible(timeout=8000)
-            appeared = True
-        except AssertionError:
-            appeared = False
-        if appeared:
-            messages = errors_dialog.locator("p.text-red-700").all_inner_texts()
-            raise AssertionError(
-                "Campaign validation failed at Start campaign:\n- "
-                + "\n- ".join(m.strip() for m in messages)
-            )
-        ok("start-campaign", "'Start campaign' performed, no validation-errors dialog shown")
+    elif answer == "watch":
+        print(">>> Waiting up to 3 min for you to click 'Start campaign' in the browser...")
+        for _ in range(360):
+            if SUBMIT_GUARD_STATE["seen"]:
+                break
+            page.wait_for_timeout(500)
     else:
-        print("TEST start-campaign SKIPPED -> click on 'Start campaign' cancelled by the user")
+        print("TEST start-campaign SKIPPED -> cancelled by the user")
+        return
+
+    # Let the guard finish handling the intercepted submit.
+    for _ in range(40):
+        if SUBMIT_GUARD_STATE["seen"]:
+            break
+        page.wait_for_timeout(250)
+
+    if not SUBMIT_GUARD_STATE["seen"]:
+        print("NOTE: no campaign submit request was observed (nothing was submitted).")
+        return
+
+    if SUBMIT_GUARD_STATE["missing"]:
+        raise AssertionError(
+            "BLOCKED submit before it reached the DSP: YouTube ad groups missing a "
+            "positive bid `value` (would crash with float(None)):\n- "
+            + "\n- ".join(SUBMIT_GUARD_STATE["missing"])
+        )
+
+    errors_dialog = page.locator("app-campaign-activation-errors-dialog")
+    appeared = False
+    try:
+        expect(errors_dialog).to_be_visible(timeout=8000)
+        appeared = True
+    except AssertionError:
+        appeared = False
+    if appeared:
+        messages = errors_dialog.locator("p.text-red-700").all_inner_texts()
+        raise AssertionError(
+            "Campaign validation failed at Start campaign:\n- "
+            + "\n- ".join(m.strip() for m in messages)
+        )
+    ok("start-campaign", f"submit payload validated (all bid values present); dumped to {SUBMIT_PAYLOAD_DUMP.name}")
 
 
 # --------------------------------------------------------------------------
@@ -1054,6 +1236,9 @@ def main():
         browser = p.chromium.launch(headless=False, args=["--start-maximized"])
         context = browser.new_context(storage_state=storage_state, no_viewport=True)
         page = context.new_page()
+        # Active for the whole session so it also catches a MANUAL 'Start
+        # campaign' click, not just the scripted one.
+        install_submit_guard(page)
 
         try:
             test_landing(page)
@@ -1081,14 +1266,23 @@ def main():
             test_finish_and_submit(page)
 
             print("\nALL TESTS PASSED ✅")
-            page.wait_for_timeout(3000)
+            try:
+                page.wait_for_timeout(3000)
+            except Exception:
+                pass
         except AssertionError as error:
             print(f"\nTEST FAILED ❌ : {error}")
         finally:
             print("\nTests finished. The browser stays open for inspection.")
-            input(">>> Press ENTER to close the browser... ")
-            context.close()
-            browser.close()
+            try:
+                input(">>> Press ENTER to close the browser... ")
+            except (EOFError, KeyboardInterrupt):
+                pass
+            for _close in (context.close, browser.close):
+                try:
+                    _close()
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":
