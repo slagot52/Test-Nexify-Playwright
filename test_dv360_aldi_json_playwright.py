@@ -203,6 +203,7 @@ def load_reference() -> dict:
 # --------------------------------------------------------------------------
 def validate_offline(ref: dict):
     valid_days = {"MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"}
+    no_id_count = 0
 
     for io in ref["insertionOrders"]:
         for li in io.get("lineItems", []):
@@ -230,7 +231,12 @@ def validate_offline(ref: dict):
                     if t["targetingType"] == "TARGETING_TYPE_AGE_RANGE":
                         key = t["ageRangeDetails"]["ageRange"]
                         assert key in COARSE_AGE_BUCKETS, f"Unknown age range token: {key}"
+                    elif t["targetingType"] == "TARGETING_TYPE_YOUTUBE_VIDEO":
+                        no_id_count += "videoId" not in t["youtubeVideoDetails"]
 
+    if no_id_count:
+        print(f"NOTE (offline): {no_id_count} TARGETING_TYPE_YOUTUBE_VIDEO entr{'y is' if no_id_count == 1 else 'ies are'} "
+              f"missing videoId in the reference JSON (malformed export data) - build_ag_targeting_aldi skips these with a NOTE.")
     print("OFFLINE VALIDATION PASSED: every targeting token this suite automates resolves against its label dict.")
 
 
@@ -559,10 +565,19 @@ def build_ag_targeting_aldi(page: Page, ag_container, ag: dict, ag_label: str):
                    if t["targetingType"] == "TARGETING_TYPE_YOUTUBE_CHANNEL" and not t["youtubeChannelDetails"].get("negative")]
     ch_excluded = [t["youtubeChannelDetails"]["channelId"] for t in ag.get("targetingOptions", [])
                    if t["targetingType"] == "TARGETING_TYPE_YOUTUBE_CHANNEL" and t["youtubeChannelDetails"].get("negative")]
-    vid_included = [t["youtubeVideoDetails"]["videoId"] for t in ag.get("targetingOptions", [])
-                    if t["targetingType"] == "TARGETING_TYPE_YOUTUBE_VIDEO" and not t["youtubeVideoDetails"].get("negative")]
-    vid_excluded = [t["youtubeVideoDetails"]["videoId"] for t in ag.get("targetingOptions", [])
-                    if t["targetingType"] == "TARGETING_TYPE_YOUTUBE_VIDEO" and t["youtubeVideoDetails"].get("negative")]
+    # A handful of TARGETING_TYPE_YOUTUBE_VIDEO entries in this export are
+    # malformed - youtubeVideoDetails carries only {"negative": true}, no
+    # videoId at all (confirmed: 6/377 across the full export). There's
+    # nothing to place for these, so skip with a NOTE rather than KeyError.
+    vid_entries = [t for t in ag.get("targetingOptions", []) if t["targetingType"] == "TARGETING_TYPE_YOUTUBE_VIDEO"]
+    vid_no_id = sum(1 for t in vid_entries if "videoId" not in t["youtubeVideoDetails"])
+    if vid_no_id:
+        print(f"NOTE ({ag_label}): {vid_no_id} YouTube video targeting entr{'y is' if vid_no_id == 1 else 'ies are'} "
+              f"missing videoId in the reference JSON (malformed export data) - skipped")
+    vid_included = [t["youtubeVideoDetails"]["videoId"] for t in vid_entries
+                    if "videoId" in t["youtubeVideoDetails"] and not t["youtubeVideoDetails"].get("negative")]
+    vid_excluded = [t["youtubeVideoDetails"]["videoId"] for t in vid_entries
+                    if "videoId" in t["youtubeVideoDetails"] and t["youtubeVideoDetails"].get("negative")]
     if ch_included or vid_included:
         add_ag_channels_and_videos_via_placements(page, ag_container, ch_included, vid_included, "Include")
     if ch_excluded or vid_excluded:
