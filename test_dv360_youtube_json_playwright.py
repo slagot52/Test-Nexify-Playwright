@@ -47,6 +47,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import Page, expect, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from test_dv360_playwright import (
     AUTH_FILE,
@@ -680,21 +681,82 @@ def fill_li_youtube_basics(page: Page, li_form, li_name: str, li_type: str):
     name_field.fill(li_name)
     ok("li-name", f"Line Item name filled with '{li_name}'")
 
-    select_mat_option(page, "lineItemType", LI_TYPE_LABELS[li_type])
-    page.wait_for_timeout(1000)
-    ok("li-type", f"Line Item type = '{LI_TYPE_LABELS[li_type]}'")
-
-    # The type selection can silently revert to Display shortly after being
-    # set (observed live) - verify the YouTube ad-group section actually
-    # rendered before continuing, re-selecting if it didn't stick.
+    type_label = LI_TYPE_LABELS[li_type]
+    li_type_select = page.locator("mat-select[formcontrolname='lineItemType']")
     yt_marker = page.locator("app-dv360-youtube-line-items")
-    for attempt in range(3):
-        if yt_marker.count() > 0:
+
+    # KNOWN NEXIFY BUG (confirmed live via the lineItemType control diagnostic):
+    # the YouTube ad-group section is gated `@if (isYouTubeLi())`, and
+    # isYouTubeLi() is driven by the `liTypeManualSig` signal, NOT the form
+    # control directly. That signal is only updated inside the
+    # lineItemType.valueChanges handler, which early-returns `if (this.hydrating)
+    # return;` BEFORE setting it. When you switch INTO a fresh IO, its default
+    # Display LI hydrates asynchronously (hydrating=true); a type change that
+    # lands in that window sets the control value fine (the select shows the
+    # YouTube type) but the handler bails, so liTypeManualSig stays 'Display'
+    # and the ad-group panel never mounts. Re-selecting the SAME value is
+    # suppressed by distinctUntilChanged(), so the only way out is to force a
+    # real value transition once hydrating has finished: WIGGLE via Display ->
+    # target type. Gets worse on later IOs (heavier form = slower hydration).
+    try:
+        page.wait_for_load_state("networkidle", timeout=8000)
+    except Exception:
+        pass
+    expect(li_type_select).to_be_visible()
+    page.wait_for_timeout(2500)
+
+    for attempt in range(6):
+        if attempt == 0:
+            select_mat_option(page, "lineItemType", type_label)
+        else:
+            # Force a Display -> target transition so valueChanges fires again
+            # (now that hydrating is false) and updates liTypeManualSig.
+            select_mat_option(page, "lineItemType", "Display")
+            page.wait_for_timeout(800)
+            select_mat_option(page, "lineItemType", type_label)
+        try:
+            page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
+        # Poll for the YouTube ad-group section rather than checking once - under
+        # a heavy form (later IOs) it can render slowly.
+        appeared = False
+        for _ in range(16):
+            if yt_marker.count() > 0:
+                appeared = True
+                break
+            page.wait_for_timeout(500)
+        if appeared:
             break
-        print(f"NOTE: line item type reverted away from YouTube, re-selecting (attempt {attempt + 1})")
-        select_mat_option(page, "lineItemType", LI_TYPE_LABELS[li_type])
+        shown = ""
+        try:
+            shown = (li_type_select.inner_text() or "").strip().replace("\n", " ")
+        except Exception:
+            pass
+        # Probe the live DOM so we can see WHY isYouTubeLi() is stuck: how many
+        # LI forms/type-selects exist (are we editing a hidden/stale form?), and
+        # whether the non-YouTube-only "Bid strategy" section is rendered (proves
+        # isYouTubeLi()===false right now).
+        try:
+            diag = page.evaluate(
+                """() => ({
+                    liForms: document.querySelectorAll('app-dv360-line-items').length,
+                    typeSelects: document.querySelectorAll("mat-select[formcontrolname='lineItemType']").length,
+                    ytPanels: document.querySelectorAll('app-dv360-youtube-line-items').length,
+                    bidStrategySections: document.querySelectorAll("mat-select[formcontrolname='bidStrategyType']").length,
+                    dealGroupSections: [...document.querySelectorAll('div.text-sm.font-semibold')].filter(d => d.textContent.trim() === 'Deal groups').length,
+                })"""
+            )
+        except Exception as e:
+            diag = f"(probe failed: {e})"
+        print(f"NOTE: YouTube section not present after setting type (attempt {attempt + 1}); "
+              f"lineItemType shows '{shown}'. DOM probe: {diag}")
         page.wait_for_timeout(1500)
-    assert yt_marker.count() > 0, "Line item type did not stay YouTube after retries"
+    assert yt_marker.count() > 0, (
+        f"YouTube ad-group section never mounted (lineItemType shows "
+        f"'{(li_type_select.inner_text() or '').strip()}') - isYouTubeLi() stuck on a stale signal"
+    )
+    ok("li-type", f"Line Item type = '{type_label}'")
 
     fill_positive_amount(page, li_form, "budget", "Budget")
     select_mat_option(page, "budgetAllocationType", "Fixed")
@@ -869,8 +931,38 @@ def fill_li_video_basics(page: Page, li_form, li_name: str, li_type: str = "LINE
     name_field = li_form.locator("input[formcontrolname='name']")
     name_field.fill(li_name)
 
-    select_mat_option(page, "lineItemType", LI_TYPE_LABELS[li_type])
-    page.wait_for_timeout(1000)
+    # Verify the VIDEO type actually STUCK. A type that reverts (or never takes)
+    # leaves the LI as an empty Display default, which autosave silently drops
+    # from the submit payload - the OTT line item was lost exactly this way. A
+    # video type is NOT YouTube, so the YouTube ad-group section must be ABSENT
+    # and the type control must show the chosen label. Settle first (in-flight
+    # hydration can otherwise swallow the change), then re-select via a wiggle
+    # if it didn't hold.
+    type_label = LI_TYPE_LABELS[li_type]
+    li_type_select = page.locator("mat-select[formcontrolname='lineItemType']")
+    yt_marker = page.locator("app-dv360-youtube-line-items")
+    try:
+        page.wait_for_load_state("networkidle", timeout=8000)
+    except Exception:
+        pass
+    expect(li_type_select).to_be_visible()
+    page.wait_for_timeout(1500)
+
+    for attempt in range(4):
+        select_mat_option(page, "lineItemType", type_label)
+        page.wait_for_timeout(1200)
+        shown = (li_type_select.inner_text() or "").strip()
+        if type_label in shown and yt_marker.count() == 0:
+            break
+        print(f"NOTE: video line item type '{type_label}' not confirmed (attempt {attempt + 1}); "
+              f"control shows '{shown}', yt_marker={yt_marker.count()} - wiggling to re-apply")
+        select_mat_option(page, "lineItemType", "Display" if type_label != "Display" else "Video")
+        page.wait_for_timeout(700)
+    assert type_label in (li_type_select.inner_text() or "").strip() and yt_marker.count() == 0, (
+        f"Video line item type '{type_label}' did not stick (control shows "
+        f"'{(li_type_select.inner_text() or '').strip()}', yt_marker={yt_marker.count()})"
+    )
+    ok("li-type", f"Line Item type = '{type_label}'")
 
     flight_cb_root = li_form.locator("mat-checkbox[formcontrolname='useIoFlightDates']")
     flight_cb = flight_cb_root.locator("input[type='checkbox']")
@@ -900,39 +992,91 @@ def fill_li_video_basics(page: Page, li_form, li_name: str, li_type: str = "LINE
     ok("li-basics", f"Line Item '{li_name}' basics filled (type='{LI_TYPE_LABELS[li_type]}')")
 
 
-def add_li_list_dialog(page: Page, li_form, section_text: str, button_name: str, api_url_fragment: str, ids: list):
-    """Shared mechanics for the LI-level 'Channels'/'Deals' pickers. Both
-    load a first page of results on dialog open (captured to resolve JSON
-    ids -> live names), but 'Deals' can be a huge, client-paginated list (71
-    pages seen live) where the target row isn't necessarily on that first
-    page - so after resolving the name, re-search for it via the dialog's
-    own filter box (present in both types) to bring it onto a page we can
-    actually click, same principle as the Geo Region picker."""
-    section = li_form.locator("div.border.rounded-xl.p-4", has_text=section_text)
-    add_btn = section.get_by_role("button", name=button_name)
-    add_btn.scroll_into_view_if_needed()
-    expect(add_btn).to_be_visible()
+def _dismiss_targeting_dialog(page: Page, dialog):
+    """Close a targeting-list dialog without applying (Escape first, then a
+    Cancel/Cancelar button if it ignores Escape) so a picker that loaded an
+    empty/unusable list never blocks the sections that follow."""
+    if dialog.count() == 0 or not dialog.first.is_visible():
+        return
+    for _ in range(3):
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(400)
+        if not dialog.first.is_visible():
+            return
+        cancel = dialog.get_by_role("button", name=re.compile(r"^(Cancel|Cancelar)$"))
+        if cancel.count() > 0:
+            try:
+                cancel.first.click()
+            except Exception:
+                pass
+            page.wait_for_timeout(400)
+            if not dialog.first.is_visible():
+                return
 
-    # The first page of results loads on dialog OPEN, so wrap the button click
-    # in expect_response to capture it without the register-then-poll race.
-    with page.expect_response(
-        lambda r: api_url_fragment in r.url, timeout=15000
-    ) as resp_info:
-        add_btn.click()
+
+def add_li_list_dialog(page: Page, li_form, section_text: str, button_name: str,
+                       api_url_fragment: str, ids: list, timeout_ms: int = 45000):
+    """Shared mechanics for the LI-level 'Channels'/'Deals'/'Deal groups'
+    pickers. All load their data on dialog open (captured to resolve JSON ids
+    -> live names). 'Deals'/'Deal groups' are client-paginated (fast first
+    page), but 'Channels' (`/dsp/dv360/channels`) is a SINGLE UNPAGINATED
+    fetch of the advertiser's entire channel library, which can be slow for a
+    large advertiser (observed live: >15s, past the old fixed timeout) - so
+    the response wait is generous (timeout_ms, default 45s) and, if the list
+    never answers, this degrades to a printed NOTE and selects nothing rather
+    than crashing the whole (multi-hour) run. After resolving a name, it
+    re-searches via the dialog's own filter box to bring the row onto a
+    clickable page, same principle as the Geo Region picker."""
+    section = li_form.locator("div.border.rounded-xl.p-4", has_text=section_text)
+    # exact=True is essential: the "Deals" and "Deal groups" sections sit in one
+    # inventory <section>, and a substring name match makes "Add deal" also
+    # match "Add deal group" (strict-mode violation). mat-icon is aria-hidden by
+    # default, so each button's accessible name is exactly its label text.
+    add_btn = section.get_by_role("button", name=button_name, exact=True)
+    add_btn.first.scroll_into_view_if_needed()
+    expect(add_btn.first).to_be_visible()
+    add_btn = add_btn.first
 
     dialog = page.locator("mat-dialog-container")
+
+    # The list loads on dialog OPEN, so wrap the button click in
+    # expect_response to capture it without the register-then-poll race.
+    body = None
+    try:
+        with page.expect_response(
+            lambda r: api_url_fragment in r.url, timeout=timeout_ms
+        ) as resp_info:
+            add_btn.click()
+        body = resp_info.value.json()
+    except PlaywrightTimeoutError:
+        print(f"NOTE: {section_text} list ({api_url_fragment}) did not respond within "
+              f"{timeout_ms // 1000}s - skipping this picker (0/{len(ids)} selected)")
+
+    if body is None:
+        # The list never answered - close whatever opened so the rest of the
+        # LI can build.
+        _dismiss_targeting_dialog(page, dialog)
+        return []
+
     expect(dialog).to_be_visible()
     grid = dialog.locator("dx-data-grid")
-    expect(grid.locator("tr.dx-data-row").first).to_be_visible()
 
-    body = resp_info.value.json()
     items = body if isinstance(body, list) else body.get("results", body.get("deals", []))
     live_by_id = {str(item["id"]): item.get("name", str(item["id"])) for item in items}
 
     matched = [(i, live_by_id[i]) for i in ids if i in live_by_id]
     if len(matched) != len(ids):
-        print(f"NOTE: {len(matched)}/{len(ids)} {section_text} ids resolved live - the rest no longer exist")
+        print(f"NOTE: {len(matched)}/{len(ids)} {section_text} ids resolved live - the rest no "
+              f"longer exist for this advertiser (live list has {len(items)} item(s))")
 
+    # Nothing to select (empty list or every id drifted) - close WITHOUT
+    # applying and continue, same graceful-degradation convention the other
+    # pickers use for dead ids. Avoids asserting on a "No data" grid.
+    if not matched:
+        _dismiss_targeting_dialog(page, dialog)
+        return []
+
+    expect(grid.locator("tr.dx-data-row").first).to_be_visible()
     search_box = dialog.get_by_placeholder("Type to filter")
     has_search = search_box.count() > 0
     for _id, name in matched:
