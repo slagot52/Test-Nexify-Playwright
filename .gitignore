@@ -20,3 +20,6 @@ nexify-frontend-main/
 
 # Local run logs
 *.log
+
+# Submit-guard payload dump (per-run artifact, can be MBs of campaign data)
+last_submit_payload.json
