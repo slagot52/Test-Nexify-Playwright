@@ -21,6 +21,13 @@ sidesteps the IO-switch type-desync bug entirely
 selection exists in this session to collide with, so
 settle_after_risky_io_switch isn't needed here.
 
+Per user request 2026-07-22: uses install_submit_guard_no_block /
+finish_and_submit_aldi_no_block instead of the blocking versions - the
+submit request is sent to the real backend even with missing bid values
+(never aborted locally), and the missing-bid diagnostic is rendered as a
+visible on-page banner (not just printed to the terminal), so the user can
+directly observe how Nexify's own backend/UI handles it.
+
 This exists purely to validate the suite's mechanics end-to-end in minutes
 instead of hours (single ad group: ~100 channels + a few videos via one
 bulk placements call, ~59 keywords, 29 categories, one synthetic ad, x4). It
@@ -42,9 +49,9 @@ from test_dv360_aldi_json_playwright import (
     test_sidebar_sync,
     create_insertion_orders_aldi,
     build_io_aldi,
-    finish_and_submit_aldi,
+    finish_and_submit_aldi_no_block,
     select_io_tab,
-    install_submit_guard,
+    install_submit_guard_no_block,
 )
 
 LITE_LI_COUNT = 4
@@ -83,7 +90,7 @@ def main():
         browser = p.chromium.launch(headless=False, args=["--start-maximized"])
         context = browser.new_context(storage_state=storage_state, no_viewport=True)
         page = context.new_page()
-        install_submit_guard(page)
+        install_submit_guard_no_block(page)
 
         try:
             test_landing(page)
@@ -111,7 +118,7 @@ def main():
             select_io_tab(page, 2)
             build_io_aldi(page, ref, 2, "YT NonSkip Lite", "LINE_ITEM_TYPE_YOUTUBE_AND_PARTNERS_NON_SKIPPABLE")
 
-            finish_and_submit_aldi(page)
+            finish_and_submit_aldi_no_block(page)
 
             print("\nALL TESTS PASSED ✅")
             try:

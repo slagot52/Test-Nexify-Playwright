@@ -153,6 +153,7 @@ from test_dv360_youtube_json_playwright import (
     SUBMIT_PAYLOAD_DUMP,
     LI_TYPE_LABELS,
     PLACEHOLDER_VIDEO_ID,
+    find_missing_ag_bid_values,
 )
 from test_dv360_generico_json_playwright import add_day_time
 # Importing from the Oreo suite also runs its module-level
@@ -750,6 +751,151 @@ def finish_and_submit_aldi(page: Page):
             + "\n- ".join(m.strip() for m in messages)
         )
     ok("start-campaign", f"submit payload validated (all bid values present); dumped to {SUBMIT_PAYLOAD_DUMP.name}")
+
+
+# --------------------------------------------------------------------------
+# No-block submit variant (2026-07-22 user request): let the real submit
+# request reach the actual backend even with missing bid values, instead of
+# the test pre-emptively aborting it - so the user (who owns the Nexify
+# backend) can observe how it/the on-screen UI actually handles it, and
+# surface the diagnostic directly in the browser (not just the terminal).
+# --------------------------------------------------------------------------
+def show_onscreen_banner(page: Page, lines: list) -> None:
+    """Inject a visible, fixed-position banner into the live page listing
+    the given lines - so a diagnostic is visible directly in the browser
+    while watching a live run, not just in the terminal log."""
+    html = "<br>".join(
+        line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        for line in lines
+    )
+    try:
+        page.evaluate(
+            """(html) => {
+                let el = document.getElementById('__test_suite_banner__');
+                if (!el) {
+                    el = document.createElement('div');
+                    el.id = '__test_suite_banner__';
+                    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;'
+                        + 'background:#b00020;color:#fff;font:13px/1.5 monospace;'
+                        + 'padding:12px 16px;max-height:40vh;overflow:auto;'
+                        + 'box-shadow:0 2px 10px rgba(0,0,0,.5);white-space:pre-wrap;';
+                    document.body.appendChild(el);
+                }
+                el.innerHTML = html;
+            }""",
+            html,
+        )
+    except Exception as e:
+        print(f"[submit-guard] could not render on-page banner: {e}")
+
+
+def install_submit_guard_no_block(page: Page):
+    """Variant of install_submit_guard that NEVER aborts the outgoing submit
+    request - it still dumps the payload and computes the missing-bid-value
+    diagnostic and prints it to the console, and also renders it as a
+    visible on-page banner, but always lets the request continue through to
+    the real backend regardless of the result."""
+    SUBMIT_GUARD_STATE["missing"] = None
+    SUBMIT_GUARD_STATE["seen"] = False
+
+    def _route(route):
+        req = route.request
+        raw = req.post_data or ""
+        if req.method != "POST" or "dspPayload" not in raw:
+            route.continue_()
+            return
+        SUBMIT_GUARD_STATE["seen"] = True
+        try:
+            body = req.post_data_json
+        except Exception:
+            body = None
+        try:
+            pretty = json.dumps(json.loads(raw), indent=2, ensure_ascii=False)
+            SUBMIT_PAYLOAD_DUMP.write_text(pretty, encoding="utf-8")
+            print(f"\n[submit-guard] captured outgoing campaign payload -> {SUBMIT_PAYLOAD_DUMP.name}")
+        except Exception as e:
+            print(f"[submit-guard] could not dump payload: {e}")
+        missing = find_missing_ag_bid_values(body) if body else []
+        if missing:
+            SUBMIT_GUARD_STATE["missing"] = missing
+            lines = ["[submit-guard] NOT blocking (per user request) - YouTube ad groups missing a "
+                     "positive bid `value`, sending to the backend anyway:"] + [f"  - {m}" for m in missing]
+            for line in lines:
+                print(line)
+            show_onscreen_banner(page, lines)
+        else:
+            print("[submit-guard] bid-value check PASSED - every youtubeAndPartnersBid has a positive value.")
+        route.continue_()
+
+    page.route("**/*", _route)
+
+
+def finish_and_submit_aldi_no_block(page: Page):
+    """Variant of finish_and_submit_aldi for use with
+    install_submit_guard_no_block. Does NOT raise on missing bid values -
+    the guard already let the request through to the real backend, so this
+    just reports what SUBMIT_GUARD_STATE captured and checks whether
+    Nexify's own on-screen validation-errors dialog appeared, instead of
+    the test failing pre-emptively."""
+    footer = page.locator("div.step-footer")
+    footer.locator("button.mdc-button", has_text="Next").click()
+    ok("next-to-recap", "click on 'Next' in the footer performed (Line Items -> Recap)")
+
+    start_btn = page.locator("button.mdc-button", has_text="Start campaign")
+    expect(start_btn).to_be_visible(timeout=15000)
+
+    answer = input(
+        f"\n>>> 'Start campaign' ACTUALLY LAUNCHES on {ADVERTISER}'s live DV360 account.\n"
+        "    The submit guard will NOT block this submit even if a bid value is missing -\n"
+        "    it will be sent to the real backend so you can see how Nexify itself handles it.\n"
+        "      yes   -> let the script click it\n"
+        "      watch -> you click it in the browser; I'll just report what happened\n"
+        "      (anything else cancels)\n"
+        ">>> choice: "
+    ).strip().lower()
+
+    if answer == "yes":
+        start_btn.click()
+    elif answer == "watch":
+        print(">>> Waiting up to 3 min for you to click 'Start campaign' in the browser...")
+        for _ in range(360):
+            if SUBMIT_GUARD_STATE["seen"]:
+                break
+            page.wait_for_timeout(500)
+    else:
+        print("TEST start-campaign SKIPPED -> cancelled by the user")
+        return
+
+    for _ in range(40):
+        if SUBMIT_GUARD_STATE["seen"]:
+            break
+        page.wait_for_timeout(250)
+
+    if not SUBMIT_GUARD_STATE["seen"]:
+        print("NOTE: no campaign submit request was observed (nothing was submitted).")
+        return
+
+    if SUBMIT_GUARD_STATE["missing"]:
+        print("NOTE: submit was sent to the backend WITH missing bid values (not blocked) - "
+              f"watch the page for the backend's response. Full payload dumped to {SUBMIT_PAYLOAD_DUMP.name}.")
+
+    errors_dialog = page.locator("app-campaign-activation-errors-dialog")
+    appeared = False
+    try:
+        expect(errors_dialog).to_be_visible(timeout=8000)
+        appeared = True
+    except AssertionError:
+        appeared = False
+    if appeared:
+        messages = errors_dialog.locator("p.text-red-700").all_inner_texts()
+        print("NOTE: Nexify showed an on-screen validation error dialog:\n- "
+              + "\n- ".join(m.strip() for m in messages))
+        show_onscreen_banner(page, ["Nexify validation error dialog:"] + [f"- {m.strip()}" for m in messages])
+    else:
+        print(f"NOTE: no on-screen error dialog appeared. Submit payload dumped to {SUBMIT_PAYLOAD_DUMP.name} "
+              "for inspection - check whether Nexify's backend actually validated this or just accepted/crashed silently.")
+
+    ok("start-campaign-no-block", "submit was not blocked by the test guard - see above for what the backend/UI actually did")
 
 
 # --------------------------------------------------------------------------
