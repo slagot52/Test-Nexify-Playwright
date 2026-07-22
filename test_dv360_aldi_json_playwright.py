@@ -757,10 +757,11 @@ def finish_and_submit_aldi(page: Page):
 # No-block submit variant (2026-07-22 user request): let the real submit
 # request reach the actual backend even with missing bid values, instead of
 # the test pre-emptively aborting it - so the user (who owns the Nexify
-# backend) can observe how the page behaves for a real user. No page
-# interaction and no injected content of any kind after the submit request
-# is sent - the diagnostic is console-only (terminal), so the live page is
-# left exactly as a generic user would see it.
+# backend) can observe how the page behaves for a real user. The network-
+# level guard only prints to the console (no page interaction, no injected
+# content); the after-submit check mirrors test_dv360_json_playwright.py's
+# test_finish_and_submit exactly - just click, then read whether Nexify's
+# own validation-errors dialog appeared.
 # --------------------------------------------------------------------------
 def install_submit_guard_no_block(page: Page):
     """Variant of install_submit_guard that NEVER aborts the outgoing submit
@@ -804,53 +805,41 @@ def install_submit_guard_no_block(page: Page):
 
 def finish_and_submit_aldi_no_block(page: Page):
     """Variant of finish_and_submit_aldi for use with
-    install_submit_guard_no_block. Does NOT raise on missing bid values, and
-    does NOT touch the page in any way once the submit request has been
-    sent - no locators, no expect() checks, no injected content. The page
-    is left to behave exactly as it would for a real user; only the
-    console-side diagnostic (already printed by the guard) is reported."""
+    install_submit_guard_no_block. Same after-submit logic as
+    test_dv360_json_playwright.py's test_finish_and_submit: click 'Start
+    campaign' if confirmed, then check whether Nexify's own
+    app-campaign-activation-errors-dialog appeared and raise/ok accordingly
+    - no polling loop, no extra reporting, nothing beyond that one check."""
     footer = page.locator("div.step-footer")
     footer.locator("button.mdc-button", has_text="Next").click()
     ok("next-to-recap", "click on 'Next' in the footer performed (Line Items -> Recap)")
 
     start_btn = page.locator("button.mdc-button", has_text="Start campaign")
     expect(start_btn).to_be_visible(timeout=15000)
-
     answer = input(
         f"\n>>> 'Start campaign' ACTUALLY LAUNCHES on {ADVERTISER}'s live DV360 account.\n"
         "    The submit guard will NOT block this submit even if a bid value is missing -\n"
         "    it will be sent to the real backend so you can see how Nexify itself handles it.\n"
-        "    No further script interaction with the page after the submit is sent.\n"
-        "      yes   -> let the script click it\n"
-        "      watch -> you click it in the browser; I'll just report what happened\n"
-        "      (anything else cancels)\n"
-        ">>> choice: "
+        "    Type 'yes' to confirm the click (anything else cancels): "
     ).strip().lower()
-
     if answer == "yes":
         start_btn.click()
-    elif answer == "watch":
-        print(">>> Waiting up to 3 min for you to click 'Start campaign' in the browser...")
-        for _ in range(360):
-            if SUBMIT_GUARD_STATE["seen"]:
-                break
-            page.wait_for_timeout(500)
+        errors_dialog = page.locator("app-campaign-activation-errors-dialog")
+        appeared = False
+        try:
+            expect(errors_dialog).to_be_visible(timeout=8000)
+            appeared = True
+        except AssertionError:
+            appeared = False
+        if appeared:
+            messages = errors_dialog.locator("p.text-red-700").all_inner_texts()
+            raise AssertionError(
+                "Campaign validation failed at Start campaign:\n- "
+                + "\n- ".join(m.strip() for m in messages)
+            )
+        ok("start-campaign-no-block", "'Start campaign' performed, no validation-errors dialog shown")
     else:
-        print("TEST start-campaign SKIPPED -> cancelled by the user")
-        return
-
-    for _ in range(40):
-        if SUBMIT_GUARD_STATE["seen"]:
-            break
-        page.wait_for_timeout(250)
-
-    if not SUBMIT_GUARD_STATE["seen"]:
-        print("NOTE: no campaign submit request was observed (nothing was submitted).")
-        return
-
-    print(f"NOTE: submit request sent to the backend (payload dumped to {SUBMIT_PAYLOAD_DUMP.name}). "
-          "No further script interaction with the page - see the browser for whatever Nexify shows natively.")
-    ok("start-campaign-no-block", "submit sent; script stops touching the page from this point on")
+        print("TEST start-campaign-no-block SKIPPED -> click on 'Start campaign' cancelled by the user")
 
 
 # --------------------------------------------------------------------------
