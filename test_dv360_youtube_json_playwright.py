@@ -600,7 +600,10 @@ def field_by_label(container, label: str):
 # a keyword search (confirmed via extractYoutubeVideoId's regex - any other
 # input is rejected with "Invalid YouTube URL/ID"). Using a stable,
 # always-available placeholder id since the JSON has no real video data.
-PLACEHOLDER_VIDEO_ID = "dQw4w9WgXcQ"
+# NOTE: the previous placeholder (dQw4w9WgXcQ, ~3:33) was confirmed live to
+# be rejected as "too long" for the NON_SKIPPABLE ad format (DV360 enforces
+# video-length limits per ad type) - EhH0qnaRhBQ is short enough to pass.
+PLACEHOLDER_VIDEO_ID = "EhH0qnaRhBQ"
 
 
 def add_synthetic_ad(page: Page, ag_container, ad_name: str, video_id: str = PLACEHOLDER_VIDEO_ID):
