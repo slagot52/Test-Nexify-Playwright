@@ -822,26 +822,41 @@ def build_ad_group_amazon(page: Page, ref: dict, date_from: datetime.date, date_
 
     # Dates last - adding a budget row can trigger a debounced re-render
     # that wipes an earlier date selection (same caveat documented in
-    # test_amazon_playwright.py).
+    # test_amazon_playwright.py). CONFIRMED LIVE 2026-07-23 (on the sibling
+    # Open Intereses suite): a real Amazon DSP submission failed with "End
+    # Date should be within campaign dates" - this suite's own verification
+    # only ever re-checked the START date input for emptiness, never the
+    # END date input, so a wiped/incorrect end date would sail through
+    # undetected. Both readonly display inputs (Start Date/Time, End
+    # Date/Time - amazon-ad-groups.component.html) come from the SAME
+    # shared date-range dialog, but are now checked and retried
+    # symmetrically below.
     dates_section = ad_form.locator("section").filter(
         has=page.locator("span.text-base.font-bold", has_text="Dates")
     )
-    start_date_input = dates_section.locator("input").first
+    start_date_input = dates_section.locator("input").nth(0)
+    end_date_input = dates_section.locator("input").nth(1)
     for attempt in range(2):
         dates_section.locator("button[matsuffix]").first.click()
         _set_date_range_dialog(page, date_from, date_to)
-        if start_date_input.input_value().strip():
+        if start_date_input.input_value().strip() and end_date_input.input_value().strip():
             break
     expect(start_date_input).not_to_have_value("")
-    ok("ag-dates", f"Ad Group dates set: {date_from} -> {date_to}")
+    expect(end_date_input).not_to_have_value("")
+    ok("ag-dates", f"Ad Group dates set: {date_from} -> {date_to} "
+       f"(start='{start_date_input.input_value()}', end='{end_date_input.input_value()}')")
 
     page.wait_for_timeout(1500)
     if not budget_input.input_value().strip():
         fill_and_verify(budgets_section, "budgetValue", "1")
-    if not start_date_input.input_value().strip():
+    if not start_date_input.input_value().strip() or not end_date_input.input_value().strip():
         dates_section.locator("button[matsuffix]").first.click()
         _set_date_range_dialog(page, date_from, date_to)
         expect(start_date_input).not_to_have_value("")
+        expect(end_date_input).not_to_have_value("")
+        print("NOTE ag-dates: end/start date input was reset by a debounced re-render after adding the "
+              "budget row and had to be re-filled - the exact same class of bug that caused a live "
+              "'End Date should be within campaign dates' rejection")
 
     return ad_group_name
 
