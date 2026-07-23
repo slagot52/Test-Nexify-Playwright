@@ -5,26 +5,22 @@ PLAYWRIGHT TEST - publicisnexify.com (JSON-driven Amazon DSP "Samsung Display" s
 Checks that Amazon DSP campaign / ad-group targeting in Nexify can be driven
 from a real Amazon Ads API export, by comparing the export's values against
 what the UI actually lets you pick. Second Amazon JSON-driven suite in this
-repo, after test_amazon_mugler_json_playwright.py - built per
-playbook_amazon_json_suites (see project memory), reusing its generic
-helpers (select_radio_by_value, resolve_amazon_category) and label dicts.
+repo, after test_amazon_mugler_json_playwright.py (a separate, not-yet-merged
+branch/PR - this suite is intentionally self-contained rather than importing
+from it, so it stands on its own against main). Built per
+playbook_amazon_json_suites (see project memory).
 
 Reference JSON: template_8315549690802_590544214477053552_AMAZON_SAMSUNG_DISPLAY.json
 (Samsung, Amazon advertiserId 8315549690802 / clientId 3635719820670341,
 media "AMAZON FULL TEMPLATE"). Small export: exactly 1 campaign, 1 ad group,
 17 targeting entries (14 AUDIENCE + 2 DEVICE + 1 LOCATION).
 
->>> CLIENT / ADVERTISER below are UNVERIFIED PLACEHOLDER GUESSES ("Samsung" /
->>> "Samsung_ES_Starcom"), not confirmed against the live Nexify UI. This is
->>> the same account name already confirmed for the DV360 Samsung suites
+>>> CLIENT / ADVERTISER = "Samsung" / "Samsung_ES_Starcom" - CONFIRMED LIVE
+>>> 2026-07-23 (full live run, campaign accepted by the real Amazon DSP).
+>>> Same account name already used for the DV360 Samsung suites
 >>> (test_dv360_json_playwright.py, advertiserId 2429284) and the Amazon
->>> manual baseline (test_amazon_playwright.py), but Amazon accounts are set
->>> up independently per DSP (same caveat as the Mugler suite), so the exact
->>> advertiser name/spelling in the Amazon-badge advertiser grid for THIS
->>> advertiserId (8315549690802) could differ. Verify against the advertiser
->>> search grid on the General Info step and correct the two constants below
->>> if wrong - test_general_info will fail fast on the advertiser grid search
->>> if either name doesn't match.
+>>> manual baseline (test_amazon_playwright.py); this run confirms it also
+>>> holds for Amazon advertiserId 8315549690802 specifically.
 
 Budgets/bids stay at a token 1 EUR to avoid real spend (baseBid, IO flight
 budget, ad-group budget, dailyMinSpendValue, KPI Value all = 1) - same
@@ -128,35 +124,129 @@ from test_dv360_playwright import (
 from test_dv360_json_playwright import select_mat_option_on
 from test_dv360_youtube_json_playwright import _dismiss_targeting_dialog
 from test_amazon_playwright import _set_date_range_dialog
-from test_amazon_mugler_json_playwright import (
-    GOAL_LABELS,
-    CAMPAIGN_KPI_LABELS as _MUGLER_CAMPAIGN_KPI_LABELS,
-    BUDGET_ALLOCATION_LABELS,
-    ROLLOVER_TOKENS,
-    DELIVERY_PROFILE_LABELS,
-    VIDEO_COMPLETION_TIER_LABELS,
-    CREATIVE_ROTATION_LABELS,
-    INVENTORY_TYPE_LABELS,
-    AD_GROUP_BID_STRATEGY_LABELS,
-    FREQ_TARGET_LABELS,
-    TIME_UNIT_LABELS,
-    select_radio_by_value,
-    resolve_amazon_category,
-)
 
 # --------------------------------------------------------------------------
 # Constants
 # --------------------------------------------------------------------------
 REFERENCE_JSON = Path("/Users/k052/Downloads/template_8315549690802_590544214477053552_AMAZON_SAMSUNG_DISPLAY.json")
-CLIENT = "Samsung"              # UNVERIFIED PLACEHOLDER - see module docstring
-ADVERTISER = "Samsung_ES_Starcom"  # UNVERIFIED PLACEHOLDER - see module docstring
+CLIENT = "Samsung"              # CONFIRMED LIVE 2026-07-23 - see module docstring
+ADVERTISER = "Samsung_ES_Starcom"  # CONFIRMED LIVE 2026-07-23 - see module docstring
 AMAZON_DSP_BADGE = "Amazon"
 
-# Campaign KPI cards are filtered by the Goal selected first (kpiByGoal in
-# amazon-order-form.component.ts) - only tokens actually seen in an export
-# need an entry here. Extend Mugler's dict (REACH) with this export's own
-# (CLICK_THROUGH_RATE), without mutating the imported one.
-CAMPAIGN_KPI_LABELS = {**_MUGLER_CAMPAIGN_KPI_LABELS, "CLICK_THROUGH_RATE": "Click through rate (CTR)"}
+# --------------------------------------------------------------------------
+# Label dicts - copied from nexify-frontend-main/src/open-api/models/amazon-ads-*.ts.
+# Where the enum KEY already equals the JSON's API token, the VALUE is the
+# mat-option/label text (same convention as the DV360 suites' enumLabel()).
+# Kept self-contained here (not imported from test_amazon_mugler_json_playwright.py)
+# because that suite lives on its own not-yet-merged branch/PR - this suite
+# must stand on its own against main.
+# --------------------------------------------------------------------------
+GOAL_LABELS = {"AWARENESS": "Awareness", "CONSIDERATION": "Consideration", "CONVERSIONS": "Conversions"}
+# Campaign KPI is a goal-card button, not a generated enum lookup - only the
+# token(s) actually seen in an export need to be here.
+CAMPAIGN_KPI_LABELS = {"REACH": "Reach", "CLICK_THROUGH_RATE": "Click through rate (CTR)"}
+BUDGET_ALLOCATION_LABELS = {"AUTO": "Auto", "MANUAL": "Manual"}
+ROLLOVER_TOKENS = {"NO_ROLLOVER", "PRIOR_BUDGET_ROLLOVER", "CUMULATIVE_BUDGET_ROLLOVER"}
+DELIVERY_PROFILE_LABELS = {"ASAP": "ASAP", "EVEN": "Even", "PACE_AHEAD": "Pace Ahead"}
+VIDEO_COMPLETION_TIER_LABELS = {
+    "ALL_TIERS": "All Tiers",
+    "GREATER_THAN_10_PERCENT": "Greater than 10%",
+    "GREATER_THAN_20_PERCENT": "Greater than 20%",
+    "GREATER_THAN_30_PERCENT": "Greater than 30%",
+    "GREATER_THAN_40_PERCENT": "Greater than 40%",
+    "GREATER_THAN_50_PERCENT": "Greater than 50%",
+    "GREATER_THAN_60_PERCENT": "Greater than 60%",
+    "GREATER_THAN_70_PERCENT": "Greater than 70%",
+    "GREATER_THAN_80_PERCENT": "Greater than 80%",
+    "GREATER_THAN_90_PERCENT": "Greater than 90%",
+}
+CREATIVE_ROTATION_LABELS = {"RANDOM": "Random", "WEIGHTED": "Weighted"}
+INVENTORY_TYPE_LABELS = {
+    "STREAMING_TV": "Streaming TV", "STANDARD_DISPLAY": "Standard Display",
+    "AMAZON_MOBILE_DISPLAY": "Amazon Mobile Display", "APP_MOBILE_APP": "App Mobile",
+    "DISPLAY": "Display", "VIDEO": "Video", "ONLINE_VIDEO": "Online Video",
+    "AUDIO": "Audio", "PODCAST": "Podcast", "AUDIO_AMAZON_DEAL": "Audio Amazon Deal",
+    "STREAMING_TV_AMAZON_DEAL": "Streaming TV Amazon Deal", "LIVE_EVENTS": "Live Events",
+    "DIGITAL_OUT_OF_HOME": "Digital Out of Home",
+}
+AD_GROUP_BID_STRATEGY_LABELS = {
+    "PRIORITIZE_KPI_TARGET": "Prioritize KPI Target",
+    "SPEND_BUDGET_IN_FULL": "Spend Budget in Full",
+    "SPEND_IMPRESSION_BUDGET_IN_FULL": "Spend Imppression Budget in Full",  # sic - matches a live typo in the enum
+    "USE_CAMPAIGN_STRATEGY": "Use Campaign Strategy",
+}
+FREQ_TARGET_LABELS = {"USER": "User", "HOUSEHOLD": "Household"}
+TIME_UNIT_LABELS = {"DAYS": "Days", "HOURS": "Hours", "MINUTES": "Minutes"}
+
+
+def select_radio_by_value(container, form_control_name: str, value: str):
+    radio = container.locator(f"input[type='radio'][formcontrolname='{form_control_name}'][value='{value}']")
+    radio.click()
+    expect(radio).to_be_checked()
+    return radio
+
+
+def resolve_amazon_category(page: Page, ad_form, category_id: str):
+    """Advertised product categories: the JSON only carries a raw category
+    id (no display name). getAmazonCategories() returns the FULL tree in one
+    response on 'Manage' click (not paginated) - capture it, find the node
+    matching category_id, then reuse the same search+expand+Include tree
+    mechanics proven in the DV360 suites' add_ag_categories (shared
+    CategoriesDialogComponent)."""
+    categories_section = ad_form.locator("section").filter(
+        has=page.locator("span.text-sm.font-semibold", has_text="Advertised product categories")
+    )
+    manage_btn = categories_section.locator("button", has_text="Manage")
+    manage_btn.scroll_into_view_if_needed()
+
+    with page.expect_response(lambda r: "/dsp/amazon/categories" in r.url, timeout=20000) as resp_info:
+        manage_btn.click()
+    body = resp_info.value.json()
+    tree = body if isinstance(body, list) else body.get("results", [])
+
+    def find(nodes):
+        for n in nodes:
+            if str(n.get("id")) == category_id:
+                return n
+            found = find(n.get("children") or [])
+            if found:
+                return found
+        return None
+
+    node = find(tree)
+    dialog = page.locator("app-categories-dialog")
+    expect(dialog).to_be_visible(timeout=10000)
+
+    if node is None:
+        print(f"NOTE: advertised product category id {category_id} not found in the live categories tree "
+              "(data drift) - skipping")
+        _dismiss_targeting_dialog(page, dialog)
+        return
+
+    path = (node.get("path") or node["name"]).strip("/")
+    leaf_name = path.split("/")[-1]
+
+    search = dialog.get_by_placeholder("Search categories")
+    search.fill(leaf_name)
+    search.press("Enter")
+    page.wait_for_timeout(600)
+
+    target_row = dialog.get_by_text(leaf_name, exact=True)
+    for _ in range(10):
+        if target_row.count() > 0 and target_row.first.is_visible():
+            break
+        toggle = dialog.locator("button[aria-label^='Toggle ']:visible").filter(has_text="chevron_right").first
+        if toggle.count() == 0:
+            break
+        toggle.click()
+        page.wait_for_timeout(300)
+    expect(target_row.first).to_be_visible()
+
+    row_container = target_row.first.locator("xpath=ancestor::div[contains(@class,'row')][1]")
+    row_container.locator("button[aria-label='Include']").click()
+    dialog.locator("button", has_text="Apply").click()
+    expect(dialog).not_to_be_visible()
+    ok("ag-categories", f"Advertised product category = '{path}' (resolved live from id {category_id})")
 
 # CONFIRMED LIVE 2026-07-23: Mugler's imported VIEWABILITY_TIER_LABELS dict is
 # wrong for every single token - that suite has never been run live, so the
@@ -178,6 +268,14 @@ VIEWABILITY_TIER_LABELS = {
 def load_reference() -> dict:
     with open(REFERENCE_JSON, encoding="utf-8") as f:
         return json.load(f)
+
+
+# CONFIRMED LIVE 2026-07-23: Amazon DSP rejects the whole campaign at
+# processing time if Video Completion Tier is set on a display-family ad
+# group (Nexify's own UI has no client-side gate for this - see
+# build_ad_group_amazon below). Module-level so later suites can import it
+# instead of re-declaring the same set.
+DISPLAY_FAMILY_INVENTORY_TYPES = {"DISPLAY", "STANDARD_DISPLAY", "AMAZON_MOBILE_DISPLAY", "APP_MOBILE_APP"}
 
 
 # --------------------------------------------------------------------------
@@ -601,8 +699,8 @@ def build_ad_group_amazon(page: Page, ref: dict, date_from: datetime.date, date_
     # disabled/hidden for display-family inventory types, mirroring how the
     # DV360 forms already gate video-only sections), not a suite bug - but
     # until it's fixed product-side, only set this field for inventory types
-    # actually confirmed to accept it.
-    DISPLAY_FAMILY_INVENTORY_TYPES = {"DISPLAY", "STANDARD_DISPLAY", "AMAZON_MOBILE_DISPLAY", "APP_MOBILE_APP"}
+    # actually confirmed to accept it (DISPLAY_FAMILY_INVENTORY_TYPES,
+    # module-level above).
     video_completion = ad_group["targetingSettings"].get("videoCompletionTier")
     if video_completion and inventory_type not in DISPLAY_FAMILY_INVENTORY_TYPES:
         select_mat_option(page, "videoCompletionTier", VIDEO_COMPLETION_TIER_LABELS[video_completion])
