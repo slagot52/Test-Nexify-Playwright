@@ -193,13 +193,16 @@ def select_radio_by_value(container, form_control_name: str, value: str):
     return radio
 
 
-def resolve_amazon_category(page: Page, ad_form, category_id: str):
+def resolve_amazon_category(page: Page, ad_form, category_id: str, index: int):
     """Advertised product categories: the JSON only carries a raw category
     id (no display name). getAmazonCategories() returns the FULL tree in one
     response on 'Manage' click (not paginated) - capture it, find the node
     matching category_id, then reuse the same search+expand+Include tree
     mechanics proven in the DV360 suites' add_ag_categories (shared
-    CategoriesDialogComponent)."""
+    CategoriesDialogComponent). `index` is the ad-group index, threaded
+    through purely so the printed test name is unique per ad group - this
+    suite has multiple ad groups per campaign, unlike Display's suite where
+    a single hardcoded name was unambiguous."""
     categories_section = ad_form.locator("section").filter(
         has=page.locator("span.text-sm.font-semibold", has_text="Advertised product categories")
     )
@@ -253,10 +256,10 @@ def resolve_amazon_category(page: Page, ad_form, category_id: str):
     row_container.locator("button[aria-label='Include']").click()
     dialog.locator("button", has_text="Apply").click()
     expect(dialog).not_to_be_visible()
-    ok("ag-categories", f"Advertised product category = '{path}' (resolved live from id {category_id})")
+    ok(f"ag{index}-categories", f"Advertised product category = '{path}' (resolved live from id {category_id})")
 
 
-def add_amazon_location_targets(page: Page, ad_form, mode: str, location_ids: list):
+def add_amazon_location_targets(page: Page, ad_form, mode: str, location_ids: list, index: int):
     """Location targeting via the shared TargetingListDialogComponent
     (type='amazon-geo', endpoint /dsp/amazon/location). CONFIRMED (via
     targeting-list-dialog.component.ts's ngOnInit) that no request fires
@@ -307,10 +310,10 @@ def add_amazon_location_targets(page: Page, ad_form, mode: str, location_ids: li
 
     dialog.locator("button", has_text="Apply").click()
     expect(dialog).not_to_be_visible()
-    ok(f"ag-location-{mode}", f"{mode.capitalize()}d locations ({len(matched)}/{len(location_ids)}): {[n for _, n in matched]}")
+    ok(f"ag{index}-location-{mode}", f"{mode.capitalize()}d locations ({len(matched)}/{len(location_ids)}): {[n for _, n in matched]}")
 
 
-def add_amazon_audience_targets(page: Page, ad_form, mode: str, audience_ids: list):
+def add_amazon_audience_targets(page: Page, ad_form, mode: str, audience_ids: list, index: int):
     """Audience targeting via the same shared TargetingListDialogComponent
     (type='amazon-audiences', endpoint /dsp/amazon/audiences) - another
     NonPaginatedBrandSafetyResponseResult, same best-effort id resolution as
@@ -357,10 +360,10 @@ def add_amazon_audience_targets(page: Page, ad_form, mode: str, audience_ids: li
 
     dialog.locator("button", has_text="Apply").click()
     expect(dialog).not_to_be_visible()
-    ok(f"ag-audience-{mode}", f"{mode.capitalize()}d audiences ({len(matched)}/{len(audience_ids)}): {[n for _, n in matched]}")
+    ok(f"ag{index}-audience-{mode}", f"{mode.capitalize()}d audiences ({len(matched)}/{len(audience_ids)}): {[n for _, n in matched]}")
 
 
-def add_amazon_keyword_targets(ad_form, keywords: list):
+def add_amazon_keyword_targets(ad_form, keywords: list, index: int):
     """Keyword targeting is a single free-text textarea (formcontrolname
     'keywordsText'), not a dialog/picker - confirmed via
     amazon-ad-groups.component.ts: on submit it's always split on commas
@@ -378,7 +381,7 @@ def add_amazon_keyword_targets(ad_form, keywords: list):
     field.fill(value)
     actual = field.input_value()
     assert actual == value, "'keywordsText': the textarea's value doesn't match what was filled"
-    ok("ag-keywords", f"{len(keywords)} keyword(s) filled into the comma-separated textarea (will submit as "
+    ok(f"ag{index}-keywords", f"{len(keywords)} keyword(s) filled into the comma-separated textarea (will submit as "
        "matchType MULTISIGNAL_BROAD - the UI has no way to preserve BROAD vs. other match types, or excluded keywords)")
 
 
@@ -730,7 +733,7 @@ def _fill_single_ad_group(page: Page, ad_form, ad_group: dict, date_from: dateti
 
     # Advertised product categories - resolved live from the raw JSON id
     # (same id for all 5 ad groups in this export).
-    resolve_amazon_category(page, ad_form, ad_group["advertisedProductCategoryIds"][0])
+    resolve_amazon_category(page, ad_form, ad_group["advertisedProductCategoryIds"][0], index)
     page.wait_for_timeout(1500)  # let the categories dialog's debounced re-render settle
 
     # Location targeting - "Only use real-time location" checkbox. This
@@ -765,8 +768,8 @@ def _fill_single_ad_group(page: Page, ad_form, ad_group: dict, date_from: dateti
         for t in ad_group.get("targets", [])
         if t["targetType"] == "AUDIENCE" and t.get("negative")
     ]
-    add_amazon_audience_targets(page, ad_form, "include", aud_included)
-    add_amazon_audience_targets(page, ad_form, "exclude", aud_excluded)
+    add_amazon_audience_targets(page, ad_form, "include", aud_included, index)
+    add_amazon_audience_targets(page, ad_form, "exclude", aud_excluded, index)
 
     loc_included = [
         t["targetDetails"]["locationTarget"]["locationId"]
@@ -778,8 +781,8 @@ def _fill_single_ad_group(page: Page, ad_form, ad_group: dict, date_from: dateti
         for t in ad_group.get("targets", [])
         if t["targetType"] == "LOCATION" and t.get("negative")
     ]
-    add_amazon_location_targets(page, ad_form, "include", loc_included)
-    add_amazon_location_targets(page, ad_form, "exclude", loc_excluded)
+    add_amazon_location_targets(page, ad_form, "include", loc_included, index)
+    add_amazon_location_targets(page, ad_form, "exclude", loc_excluded, index)
 
     # Keyword targeting - single comma-separated textarea, include-only.
     keywords = [
@@ -792,7 +795,7 @@ def _fill_single_ad_group(page: Page, ad_form, ad_group: dict, date_from: dateti
         for t in ad_group.get("targets", [])
         if t["targetType"] == "KEYWORD" and t.get("negative")
     ]
-    add_amazon_keyword_targets(ad_form, keywords)
+    add_amazon_keyword_targets(ad_form, keywords, index)
     if excluded_keywords:
         print(f"TEST ag{index}-keywords-excluded SKIPPED -> {len(excluded_keywords)} excluded keyword(s) present "
               "in the JSON, but the Keywords textarea always submits an include-only list (exclude is hardcoded "
